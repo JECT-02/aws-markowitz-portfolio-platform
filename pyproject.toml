@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portfolio-markowitz-aws"
+version = "0.1.0"
+description = "Serverless Markowitz portfolio optimization on AWS"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alpaca-py",
+    "boto3",
+    "cvxpy",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "pydantic>=2,<3",
+    "pyyaml",
+    "scikit-learn",
+    "scipy",
+]
+
+[dependency-groups]
+dev = [
+    "bandit",
+    "hypothesis",
+    "moto",
+    "mypy",
+    "pip-audit",
+    "pytest",
+    "pytest-cov",
+    "responses",
+    "respx",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "ARG"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
