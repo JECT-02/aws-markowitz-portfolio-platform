@@ -3,16 +3,15 @@
 Optimización de portafolios con Markowitz robustecido sobre una arquitectura
 serverless en AWS. El diseño completo está en `Architecture.md`.
 
-Estado actual: Fase 0 (esqueleto del proyecto). Sin lógica de negocio, sin
-infraestructura y sin credenciales.
+Estado actual: Fase 0.
 
 ## Requisitos
 
-- Python 3.12 (ver `.python-version`)
-- [uv](https://docs.astral.sh/uv/)
-- Docker (para la imagen del optimizador, fases posteriores)
-- AWS CDK (fases posteriores)
+- Python 3.12
+- uv
+- Docker
+- AWS CDK
 
 ## Comandos
 
-Usa `make` como entrada única. Ver `Makefile`.
+Usa `make`.
