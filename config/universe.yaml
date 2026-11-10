@@ -1,0 +1,13 @@
+tickers:
+  - SPY
+  - QQQ
+  - IWM
+  - EFA
+  - EEM
+  - AGG
+  - TLT
+  - LQD
+  - GLD
+  - VNQ
+
+max_weight: 0.20
