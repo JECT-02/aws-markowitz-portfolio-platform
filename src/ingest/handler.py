@@ -3,10 +3,8 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
-from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
@@ -20,6 +18,7 @@ from common.config import (
     load_universe_config,
 )
 from common.errors import ConfigurationError
+from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
 from common.storage import S3Storage
@@ -28,7 +27,6 @@ from ingest.adapters.yfinance import YFinanceMarketDataSource
 from ingest.calendar import TradingCalendar
 from ingest.core.service import IngestService
 
-_EASTERN = ZoneInfo("America/New_York")
 logger = get_logger(__name__)
 
 
@@ -44,12 +42,12 @@ class IngestDependencies:
 
 def run_ingestion(event: Mapping[str, object], deps: IngestDependencies) -> dict[str, object]:
     """Run the daily ingestion for the event run date."""
-    run_date = _resolve_run_date(event, deps.clock)
+    run_date = resolve_run_date(event, deps.clock)
     if not deps.calendar.is_trading_day(run_date):
         logger.info("market closed", extra={"run_date": run_date.isoformat()})
         return {"status": "SKIPPED", "run_date": run_date.isoformat(), "reason": "market_closed"}
     metadata = RunMetadata(
-        run_id=_resolve_run_id(event),
+        run_id=resolve_run_id(event),
         run_date=run_date,
         code_version=deps.code_version,
         source=DataSource.ALPACA,
@@ -115,24 +113,3 @@ def _build_dependencies() -> IngestDependencies:
         strategy=strategy,
         code_version=os.environ.get("CODE_VERSION", "unknown"),
     )
-
-
-def _resolve_run_date(event: Mapping[str, object], clock: Clock) -> date:
-    value = event.get("run_date")
-    if value is None:
-        return clock.now().astimezone(_EASTERN).date()
-    if not isinstance(value, str):
-        raise ConfigurationError("run_date must be an ISO date string")
-    try:
-        return date.fromisoformat(value)
-    except ValueError as exc:
-        raise ConfigurationError("run_date must be an ISO date string") from exc
-
-
-def _resolve_run_id(event: Mapping[str, object]) -> str:
-    value = event.get("run_id")
-    if value is None:
-        return uuid4().hex
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigurationError("run_id must be a non-empty string")
-    return value.strip()
