@@ -23,16 +23,18 @@ branch without explicit human confirmation, and must never contain secret values
 
 In scope:
 
-- `infra/` CDK app in Python with `DataStack`, `PipelineStack` and `ObservabilityStack`.
+- `infra/` CDK app in Python with `DataStack` and `PipelineStack`.
 - S3 buckets: bronze, quarantine, silver and gold.
-- DynamoDB `PortfolioState` with provisioned capacity, PITR and on-demand writes disabled.
+- DynamoDB `PortfolioState` with provisioned capacity, no PITR and on-demand writes disabled.
 - SNS topic for proposals and failures, plus SQS dead-letter queues.
 - Lambda packaging for ingest and clean, and a Docker image for the optimizer.
 - Step Functions state machine with retries, catches, DLQs and terminal failure notification.
 - EventBridge Scheduler with the New York time zone and separate rules for slow and fast loops.
 - DynamoDB state adapter so the optimizer reads `STATE/CURRENT` and writes the proposal with a
   `PENDING` or `NO_REBALANCE` status, and `FAILED` on solver errors.
-- CloudWatch log retention, alarms and an AWS Budget with warnings.
+- Free-tier observability only: structured logs with one to three days of retention, SNS
+  notifications and the Step Functions execution history. No CloudWatch alarms, dashboards,
+  custom metrics, X-Ray or AWS Budgets.
 - `tests/infra` assertions for encryption, public access, capacity, IAM, DLQ and schedule.
 - GitHub Actions workflow for `ruff`, `mypy`, tests, `cdk synth` and `cdk diff` with OIDC.
 - Phase 3 log in `docs/fase_3_bitacora.md`.
@@ -55,7 +57,8 @@ Out of scope:
 - `paper=True` remains hard-coded in the broker client. No trading endpoint is touched in this
   phase.
 - No NAT Gateway, no VPC, no EC2, no RDS and no hourly resources.
-- Every Lambda has explicit memory, timeout, log retention and DLQ.
+- Every Lambda has explicit memory, timeout, one to three days of log retention and DLQ.
+  No paid observability add-ons.
 - One IAM role per function with specific actions and resource ARNs.
 - Data buckets use `BLOCK_ALL`, encryption, TLS enforcement, `RETAIN` and a lifecycle policy.
 - DynamoDB uses `Decimal`, conditional writes and `RETAIN`.
@@ -70,7 +73,6 @@ infra/
   stacks/
     data_stack.py
     pipeline_stack.py
-    observability_stack.py
   constructs/
     tagged_function.py
     bucket_policy.py
@@ -104,7 +106,7 @@ tests/
 2. Dependencies and scaffolding: add `aws-cdk-lib` and `constructs`, create `infra/cdk.json`,
    `infra/app.py`, environment context resolution and the tag helper. No stacks yet.
 3. `DataStack`: buckets, table, topic, DLQs. Infra tests for encryption, public access,
-   provisioned capacity, PITR, retention and tags.
+   provisioned capacity, retention and tags.
 4. Secrets from SSM: provider protocol, adapter, settings and tests.
 5. State adapter: DynamoDB reads and writes with `Decimal`, conditional proposal transitions,
    failure proposal on `SolverError` or `InfeasibleError`, unit tests with `moto`.
@@ -115,11 +117,9 @@ tests/
    dependency lacks them, use `x86_64` and record the reason.
 8. `PipelineStack`: ingest and clean zips, optimizer image, state machine, scheduler and SNS
    wiring. Infra tests for retries, catches, time zone, DLQs, IAM and function settings.
-9. `ObservabilityStack`: alarms for Lambda errors, state machine failures, DLQ depth and missing
-   daily run; budget with 50, 80 and 100 percent notifications.
-10. CI workflow: OIDC role assumption, no static keys, `cdk synth` and `cdk diff` on pull
-    requests, manual approval gate for any deploy job.
-11. Phase 3 log with real command results and open limitations.
+9. CI workflow: OIDC role assumption, no static keys, `cdk synth` and `cdk diff` on pull
+   requests, manual approval gate for any deploy job.
+10. Phase 3 log with real command results and open limitations.
 
 Each step is one atomic commit, with English messages and no secrets.
 
@@ -186,7 +186,8 @@ Clean or Optimizer failure
 - Retries: three attempts, exponential backoff with jitter, for transient Lambda and network
   errors. Business failures such as infeasible or solver errors are not retried.
 - Only metadata is passed between states. Price series stay in S3.
-- `NotifyFailure` publishes to SNS, then the execution fails so the alarm fires.
+- `NotifyFailure` publishes to SNS, then the execution fails so the Step Functions history
+  and the notification record the failure.
 
 ### DynamoDB access patterns
 
@@ -244,7 +245,7 @@ only adds the DynamoDB records described in `Architecture.md` section 10.
 
 - Unit: state adapter with `moto`, `Decimal` conversion, conditional conflicts and failure
   proposals.
-- Infra: `assertions.Template` for bucket encryption and public access, table capacity and PITR,
+- Infra: `assertions.Template` for bucket encryption and public access, table capacity,
   Lambda memory, timeout, DLQ and log retention, IAM without wildcards, SNS subscriptions,
   scheduler time zone and state machine retries.
 - Integration: state machine definition rendered by `cdk synth` contains the expected order and
