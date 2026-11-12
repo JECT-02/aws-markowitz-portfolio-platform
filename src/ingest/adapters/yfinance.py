@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
@@ -10,6 +11,7 @@ import yfinance as yf
 from common.errors import ExternalSourceError
 from common.models import BarFetchRequest, DataSource, RawBarSeries
 
+_EASTERN = ZoneInfo("America/New_York")
 _COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 _DOWNLOAD_ERRORS = (KeyError, OSError, TypeError, ValueError)
 
@@ -82,5 +84,5 @@ def _select_symbol(frame: pd.DataFrame, symbol: str) -> pd.DataFrame | None:
 def _timestamp(value: Any) -> datetime:
     timestamp = pd.Timestamp(value)
     if timestamp.tzinfo is None:
-        return timestamp.to_pydatetime().replace(tzinfo=UTC)
-    return timestamp.tz_convert("UTC").to_pydatetime()
+        return timestamp.to_pydatetime().replace(tzinfo=_EASTERN)
+    return timestamp.tz_convert(_EASTERN).to_pydatetime()

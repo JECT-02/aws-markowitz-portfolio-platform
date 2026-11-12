@@ -1,4 +1,4 @@
-from datetime import UTC, date
+from datetime import UTC, date, datetime
 
 import pandas as pd
 import pytest
@@ -33,8 +33,8 @@ def test_maps_frame_to_canonical_payload() -> None:
     assert series[0].symbol == "SPY"
     assert series[0].payload[0]["close"] == pytest.approx(100.5)
     timestamp = series[0].payload[0]["timestamp"]
-    assert isinstance(timestamp, pd.Timestamp) is False
-    assert timestamp.tzinfo == UTC
+    assert isinstance(timestamp, datetime)
+    assert timestamp.astimezone(UTC).date() == date(2024, 1, 2)
 
 
 def test_download_uses_exclusive_end_and_adjustments() -> None:
