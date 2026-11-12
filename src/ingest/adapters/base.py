@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from common.models import BarFetchRequest, BarSeries
+from common.models import BarFetchRequest, RawBarSeries
 
 
 class MarketDataSource(Protocol):
@@ -10,4 +10,4 @@ class MarketDataSource(Protocol):
 
     name: str
 
-    def fetch_daily_bars(self, request: BarFetchRequest) -> list[BarSeries]: ...
+    def fetch_daily_bars(self, request: BarFetchRequest) -> list[RawBarSeries]: ...

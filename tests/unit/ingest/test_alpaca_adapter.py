@@ -44,14 +44,14 @@ def _request() -> BarFetchRequest:
     return BarFetchRequest(symbols=["SPY"], start=date(2024, 1, 2), end=date(2024, 1, 2))
 
 
-def test_maps_alpaca_bars_to_domain_series() -> None:
+def test_maps_alpaca_bars_to_canonical_payload() -> None:
     client = _FakeClient(_barset())
     source = AlpacaMarketDataSource("key", "secret", client=client)
     series = source.fetch_daily_bars(_request())
     assert len(series) == 1
     assert series[0].symbol == "SPY"
-    assert series[0].bars[0].close == pytest.approx(100.5)
-    assert series[0].bars[0].trade_count == 10
+    assert series[0].payload[0]["close"] == pytest.approx(100.5)
+    assert series[0].payload[0]["trade_count"] == pytest.approx(10.0)
 
 
 def test_request_uses_all_adjustments_and_feed() -> None:
