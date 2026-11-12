@@ -55,9 +55,9 @@ class S3Storage:
         return True
 
     def write_json(self, bucket: str, key: str, payload: dict[str, Any]) -> None:
-        body = json.dumps(
-            payload, sort_keys=True, default=str, separators=(",", ":")
-        ).encode("utf-8")
+        body = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode(
+            "utf-8"
+        )
         self._put(bucket, key, body, "application/json")
 
     def read_json(self, bucket: str, key: str) -> dict[str, Any]:
