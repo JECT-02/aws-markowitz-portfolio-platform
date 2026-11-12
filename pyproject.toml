@@ -19,20 +19,24 @@ dependencies = [
     "pyyaml",
     "scikit-learn",
     "scipy",
+    "yfinance",
 ]
 
 [dependency-groups]
 dev = [
     "bandit",
+    "boto3-stubs[s3]",
     "hypothesis",
     "moto",
     "mypy",
+    "pandas-stubs",
     "pip-audit",
     "pytest",
     "pytest-cov",
     "responses",
     "respx",
     "ruff",
+    "types-PyYAML",
 ]
 
 [tool.setuptools.packages.find]
@@ -45,10 +49,17 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "ARG"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["alpaca.*", "pyarrow.*", "yfinance.*", "moto.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
