@@ -148,3 +148,15 @@ class IngestResult(BaseModel):
     metadata: RunMetadata
     accepted: dict[str, str]
     quarantined: dict[str, str]
+
+
+class CleanResult(BaseModel):
+    """Outcome of a silver layer cleaning run."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    metadata: RunMetadata
+    used: list[str]
+    missing: list[str]
+    excluded: dict[str, str]
+    partitions: list[str]
