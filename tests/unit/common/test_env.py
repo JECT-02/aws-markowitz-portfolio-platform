@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from common.env import config_directory, load_env_file, require_variable
+from common.env import load_env_file, require_variable
 from common.errors import ConfigurationError
 
 
@@ -25,8 +25,3 @@ def test_require_variable_rejects_empty() -> None:
         assert "ALPHA" in str(error)
     else:
         raise AssertionError("expected ConfigurationError")
-
-
-def test_config_directory_defaults() -> None:
-    assert config_directory({}) == Path("config")
-    assert config_directory({"CONFIG_DIR": "custom"}) == Path("custom")

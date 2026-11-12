@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,12 +7,13 @@ from typing import Protocol
 
 from common.clock import Clock, SystemClock
 from common.config import (
+    RuntimeSettings,
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
     load_universe_config,
 )
-from common.env import config_directory, load_env_file
+from common.env import load_env_file
 from common.errors import ConfigurationError
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
@@ -78,10 +78,11 @@ def handler(event: Mapping[str, object], _context: object | None = None) -> dict
 
 
 def build_dependencies() -> OptimizerDependencies:
+    runtime = RuntimeSettings.from_environment()
     storage_settings = StorageSettings.from_environment()
-    universe = load_universe_config(config_directory() / "universe.yaml")
+    universe = load_universe_config(runtime.config_dir / "universe.yaml")
     strategy = StrategyConfig.from_environment()
-    storage = S3Storage()
+    storage = S3Storage(region_name=runtime.aws_region)
     service = OptimizerService(
         repository=SilverReturnsRepository(storage, storage_settings.silver_bucket),
         storage=storage,
@@ -95,7 +96,7 @@ def build_dependencies() -> OptimizerDependencies:
         clock=SystemClock(),
         universe=universe,
         strategy=strategy,
-        code_version=os.environ.get("CODE_VERSION", "unknown"),
+        code_version=runtime.code_version,
     )
 
 

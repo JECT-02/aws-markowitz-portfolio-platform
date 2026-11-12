@@ -29,10 +29,3 @@ def require_variable(environ: Mapping[str, str], name: str) -> str:
     if value is None or not value.strip():
         raise ConfigurationError(f"missing environment variable: {name}")
     return value.strip()
-
-
-def config_directory(environ: Mapping[str, str] | None = None) -> Path:
-    """Return the configuration directory, defaulting to ./config."""
-    source = os.environ if environ is None else environ
-    value = source.get("CONFIG_DIR")
-    return Path(value.strip()) if value and value.strip() else Path("config")

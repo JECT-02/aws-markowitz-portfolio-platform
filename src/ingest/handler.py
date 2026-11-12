@@ -11,13 +11,13 @@ from alpaca.trading.client import TradingClient
 
 from common.clock import Clock, SystemClock
 from common.config import (
+    RuntimeSettings,
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
     load_universe_config,
 )
-from common.env import config_directory, load_env_file
-from common.errors import ConfigurationError
+from common.env import load_env_file, require_variable
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
@@ -86,16 +86,14 @@ def handler(event: Mapping[str, object], _context: object | None = None) -> dict
 
 
 def _build_dependencies() -> IngestDependencies:
-    api_key = os.environ.get("ALPACA_API_KEY")
-    secret_key = os.environ.get("ALPACA_SECRET_KEY")
-    if not api_key or not secret_key:
-        raise ConfigurationError("ALPACA_API_KEY and ALPACA_SECRET_KEY are required")
+    api_key = require_variable(os.environ, "ALPACA_API_KEY")
+    secret_key = require_variable(os.environ, "ALPACA_SECRET_KEY")
+    runtime = RuntimeSettings.from_environment()
     storage_settings = StorageSettings.from_environment()
-    config_dir = config_directory()
-    universe = load_universe_config(config_dir / "universe.yaml")
+    universe = load_universe_config(runtime.config_dir / "universe.yaml")
     strategy = StrategyConfig.from_environment()
     clock = SystemClock()
-    storage = S3Storage()
+    storage = S3Storage(region_name=runtime.aws_region)
     service = IngestService(
         primary=AlpacaMarketDataSource(api_key, secret_key, feed=DataFeed.IEX),
         fallback=YFinanceMarketDataSource(),
@@ -110,5 +108,5 @@ def _build_dependencies() -> IngestDependencies:
         clock=clock,
         universe=universe,
         strategy=strategy,
-        code_version=os.environ.get("CODE_VERSION", "unknown"),
+        code_version=runtime.code_version,
     )

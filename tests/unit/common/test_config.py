@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from common.config import (
+    RuntimeSettings,
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
@@ -103,3 +104,27 @@ def test_storage_settings_missing_variables() -> None:
     with pytest.raises(ConfigurationError) as error:
         StorageSettings.from_environment({"BRONZE_BUCKET": "bronze"})
     assert "QUARANTINE_BUCKET" in str(error.value)
+
+
+def _runtime_env() -> dict[str, str]:
+    return {
+        "AWS_REGION": "us-east-1",
+        "CODE_VERSION": "abc1234",
+        "CONFIG_DIR": "config",
+    }
+
+
+def test_runtime_settings_from_environment() -> None:
+    settings = RuntimeSettings.from_environment(_runtime_env())
+    assert settings.aws_region == "us-east-1"
+    assert settings.code_version == "abc1234"
+    assert settings.config_dir == Path("config")
+
+
+@pytest.mark.parametrize("name", ["AWS_REGION", "CODE_VERSION", "CONFIG_DIR"])
+def test_runtime_settings_requires_every_variable(name: str) -> None:
+    environ = _runtime_env()
+    del environ[name]
+    with pytest.raises(ConfigurationError) as error:
+        RuntimeSettings.from_environment(environ)
+    assert name in str(error.value)
