@@ -6,7 +6,6 @@ from common.config import (
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
-    load_strategy_config,
     load_universe_config,
 )
 from common.errors import ConfigurationError
@@ -17,6 +16,23 @@ def _write(path: Path, content: str) -> Path:
     return path
 
 
+def _strategy_env() -> dict[str, str]:
+    return {
+        "RISK_AVERSION": "2.5",
+        "TRANSACTION_COST_LAMBDA": "0.001",
+        "RETURN_SHRINKAGE_ALPHA": "0.25",
+        "RISK_FREE_RATE_ANNUAL": "0.04",
+        "MAX_FORWARD_FILL_DAYS": "3",
+        "WINDOW_DAYS": "252",
+        "INGEST_LOOKBACK_DAYS": "420",
+        "REBALANCE_L1_THRESHOLD": "0.10",
+        "VALIDATION_GAMMAS": "1,2.5,5",
+        "VALIDATION_LAMBDAS": "0,0.001",
+        "VALIDATION_ALPHAS": "0,0.25,0.5",
+        "VALIDATION_WINDOWS": "126,252,504",
+    }
+
+
 def test_load_universe_config_normalizes_tickers(tmp_path: Path) -> None:
     path = _write(tmp_path / "universe.yaml", "tickers:\n  - spy\n  - qqq\nmax_weight: 0.20\n")
     config = load_universe_config(path)
@@ -24,17 +40,34 @@ def test_load_universe_config_normalizes_tickers(tmp_path: Path) -> None:
     assert config.max_weight == pytest.approx(0.20)
 
 
-def test_load_strategy_config_applies_defaults(tmp_path: Path) -> None:
-    path = _write(tmp_path / "strategy.yaml", "window_days: 252\n")
-    config = load_strategy_config(path)
-    assert config.window_days == 252
-    assert config.max_forward_fill_days is None
+def test_strategy_config_from_environment() -> None:
+    config = StrategyConfig.from_environment(_strategy_env())
+    assert config.risk_aversion == pytest.approx(2.5)
+    assert config.max_forward_fill_days == 3
+    assert config.validation_gammas == [1.0, 2.5, 5.0]
+    assert config.validation_windows == [126, 252, 504]
 
 
-def test_strategy_requires_forward_fill_days() -> None:
+def test_strategy_config_requires_every_variable() -> None:
+    environ = _strategy_env()
+    del environ["RISK_FREE_RATE_ANNUAL"]
+    with pytest.raises(ConfigurationError) as error:
+        StrategyConfig.from_environment(environ)
+    assert "RISK_FREE_RATE_ANNUAL" in str(error.value)
+
+
+def test_strategy_config_rejects_invalid_values() -> None:
+    environ = _strategy_env()
+    environ["RETURN_SHRINKAGE_ALPHA"] = "2"
     with pytest.raises(ConfigurationError):
-        StrategyConfig().require_forward_fill_days()
-    assert StrategyConfig(max_forward_fill_days=5).require_forward_fill_days() == 5
+        StrategyConfig.from_environment(environ)
+
+
+def test_strategy_config_rejects_empty_list() -> None:
+    environ = _strategy_env()
+    environ["VALIDATION_GAMMAS"] = " , "
+    with pytest.raises(ConfigurationError):
+        StrategyConfig.from_environment(environ)
 
 
 def test_missing_file_raises_configuration_error(tmp_path: Path) -> None:

@@ -16,6 +16,21 @@ _STORAGE_ENV = {
     "gold_bucket": "GOLD_BUCKET",
 }
 
+_STRATEGY_ENV = {
+    "risk_aversion": "RISK_AVERSION",
+    "transaction_cost_lambda": "TRANSACTION_COST_LAMBDA",
+    "return_shrinkage_alpha": "RETURN_SHRINKAGE_ALPHA",
+    "risk_free_rate_annual": "RISK_FREE_RATE_ANNUAL",
+    "max_forward_fill_days": "MAX_FORWARD_FILL_DAYS",
+    "window_days": "WINDOW_DAYS",
+    "ingest_lookback_days": "INGEST_LOOKBACK_DAYS",
+    "rebalance_l1_threshold": "REBALANCE_L1_THRESHOLD",
+    "validation_gammas": "VALIDATION_GAMMAS",
+    "validation_lambdas": "VALIDATION_LAMBDAS",
+    "validation_alphas": "VALIDATION_ALPHAS",
+    "validation_windows": "VALIDATION_WINDOWS",
+}
+
 
 class UniverseConfig(BaseModel):
     """Validated universe definition."""
@@ -37,24 +52,53 @@ class UniverseConfig(BaseModel):
 
 
 class StrategyConfig(BaseModel):
-    """Validated strategy parameters."""
+    """Validated strategy parameters resolved from the environment."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    risk_aversion: float | None = Field(default=None, gt=0.0)
-    transaction_cost_lambda: float | None = Field(default=None, ge=0.0)
-    return_shrinkage_alpha: float | None = Field(default=None, ge=0.0, le=1.0)
-    window_days: int = Field(default=252, ge=2)
-    ingest_lookback_days: int = Field(default=420, ge=2)
-    rebalance_l1_threshold: float = Field(default=0.10, gt=0.0)
-    risk_free_rate_annual: float | None = None
-    max_forward_fill_days: int | None = Field(default=None, ge=0)
+    risk_aversion: float = Field(gt=0.0)
+    transaction_cost_lambda: float = Field(ge=0.0)
+    return_shrinkage_alpha: float = Field(ge=0.0, le=1.0)
+    risk_free_rate_annual: float
+    max_forward_fill_days: int = Field(ge=0)
+    window_days: int = Field(ge=2)
+    ingest_lookback_days: int = Field(ge=2)
+    rebalance_l1_threshold: float = Field(gt=0.0)
+    validation_gammas: list[float] = Field(min_length=1)
+    validation_lambdas: list[float] = Field(min_length=1)
+    validation_alphas: list[float] = Field(min_length=1)
+    validation_windows: list[int] = Field(min_length=1)
 
-    def require_forward_fill_days(self) -> int:
-        """Return the configured forward-fill limit or raise if unset."""
-        if self.max_forward_fill_days is None:
-            raise ConfigurationError("max_forward_fill_days is required")
-        return self.max_forward_fill_days
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> StrategyConfig:
+        """Build strategy parameters from required environment variables."""
+        source = os.environ if environ is None else environ
+        raw: dict[str, str] = {}
+        for field_name, env_name in _STRATEGY_ENV.items():
+            value = source.get(env_name)
+            if value is None or not value.strip():
+                raise ConfigurationError(f"missing environment variable: {env_name}")
+            raw[field_name] = value.strip()
+        try:
+            return cls.model_validate(
+                {
+                    "risk_aversion": float(raw["risk_aversion"]),
+                    "transaction_cost_lambda": float(raw["transaction_cost_lambda"]),
+                    "return_shrinkage_alpha": float(raw["return_shrinkage_alpha"]),
+                    "risk_free_rate_annual": float(raw["risk_free_rate_annual"]),
+                    "max_forward_fill_days": int(raw["max_forward_fill_days"]),
+                    "window_days": int(raw["window_days"]),
+                    "ingest_lookback_days": int(raw["ingest_lookback_days"]),
+                    "rebalance_l1_threshold": float(raw["rebalance_l1_threshold"]),
+                    "validation_gammas": _parse_float_list(raw["validation_gammas"]),
+                    "validation_lambdas": _parse_float_list(raw["validation_lambdas"]),
+                    "validation_alphas": _parse_float_list(raw["validation_alphas"]),
+                    "validation_windows": _parse_int_list(raw["validation_windows"]),
+                }
+            )
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise ConfigurationError("invalid strategy environment variables") from exc
+
 
 
 class StorageSettings(BaseModel):
@@ -105,10 +149,15 @@ def load_universe_config(path: Path) -> UniverseConfig:
         raise ConfigurationError(f"invalid universe configuration: {path}") from exc
 
 
-def load_strategy_config(path: Path) -> StrategyConfig:
-    """Load and validate the strategy configuration file."""
-    document = _read_yaml_mapping(path)
-    try:
-        return StrategyConfig.model_validate(document)
-    except ValidationError as exc:
-        raise ConfigurationError(f"invalid strategy configuration: {path}") from exc
+def _parse_float_list(value: str) -> list[float]:
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        raise ConfigurationError("validation list must not be empty")
+    return [float(part) for part in parts]
+
+
+def _parse_int_list(value: str) -> list[int]:
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        raise ConfigurationError("validation list must not be empty")
+    return [int(part) for part in parts]

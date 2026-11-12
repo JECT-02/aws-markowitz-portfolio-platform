@@ -11,9 +11,9 @@ from common.config import (
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
-    load_strategy_config,
     load_universe_config,
 )
+from common.env import config_directory, load_env_file
 from common.errors import ConfigurationError
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
@@ -45,7 +45,7 @@ def run_clean(event: Mapping[str, object], deps: CleanDependencies) -> dict[str,
     result = deps.service.run(
         metadata,
         deps.universe.tickers,
-        deps.strategy.require_forward_fill_days(),
+        deps.strategy.max_forward_fill_days,
     )
     logger.info(
         "clean completed",
@@ -71,15 +71,15 @@ def run_clean(event: Mapping[str, object], deps: CleanDependencies) -> dict[str,
 
 def handler(event: Mapping[str, object], _context: object | None = None) -> dict[str, object]:
     """AWS Lambda entry point for the clean stage."""
+    load_env_file(Path(".env"))
     configure_logging()
     return run_clean(event, _build_dependencies())
 
 
 def _build_dependencies() -> CleanDependencies:
     storage_settings = StorageSettings.from_environment()
-    config_dir = Path(os.environ.get("CONFIG_DIR", "config"))
-    universe = load_universe_config(config_dir / "universe.yaml")
-    strategy = load_strategy_config(config_dir / "strategy.yaml")
+    universe = load_universe_config(config_directory() / "universe.yaml")
+    strategy = StrategyConfig.from_environment()
     service = CleanService(
         storage=S3Storage(),
         bronze_bucket=storage_settings.bronze_bucket,

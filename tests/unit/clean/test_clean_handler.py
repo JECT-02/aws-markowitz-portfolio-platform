@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 
 import pytest
@@ -51,19 +52,19 @@ def _result() -> CleanResult:
     )
 
 
-def _deps(service: _RecordingService, strategy: StrategyConfig | None = None) -> CleanDependencies:
+def _deps(service: _RecordingService, strategy: StrategyConfig) -> CleanDependencies:
     return CleanDependencies(
         service=service,
         clock=_FixedClock(datetime(2024, 1, 2, 22, 0, tzinfo=UTC)),
         universe=UniverseConfig(tickers=["SPY"], max_weight=0.20),
-        strategy=strategy or StrategyConfig(max_forward_fill_days=2),
+        strategy=strategy,
         code_version="abc",
     )
 
 
-def test_run_clean_returns_summary() -> None:
+def test_run_clean_returns_summary(make_strategy_config: Callable[..., StrategyConfig]) -> None:
     service = _RecordingService(_result())
-    outcome = run_clean({}, _deps(service))
+    outcome = run_clean({}, _deps(service, make_strategy_config()))
     assert outcome["status"] == "COMPLETED"
     assert outcome["source"] == "alpaca"
     assert outcome["partitions"] == ["year=2024/month=01/returns.parquet"]
@@ -72,20 +73,14 @@ def test_run_clean_returns_summary() -> None:
     assert fill_days == 2
 
 
-def test_event_source_is_used() -> None:
+def test_event_source_is_used(make_strategy_config: Callable[..., StrategyConfig]) -> None:
     service = _RecordingService(_result())
-    run_clean({"source": "yfinance"}, _deps(service))
+    run_clean({"source": "yfinance"}, _deps(service, make_strategy_config()))
     metadata, _, _ = service.calls[0]
     assert metadata.source is DataSource.YFINANCE
 
 
-def test_invalid_source_is_rejected() -> None:
+def test_invalid_source_is_rejected(make_strategy_config: Callable[..., StrategyConfig]) -> None:
     service = _RecordingService(_result())
     with pytest.raises(ConfigurationError):
-        run_clean({"source": "nasdaq"}, _deps(service))
-
-
-def test_missing_forward_fill_config_is_rejected() -> None:
-    service = _RecordingService(_result())
-    with pytest.raises(ConfigurationError):
-        run_clean({}, _deps(service, StrategyConfig()))
+        run_clean({"source": "nasdaq"}, _deps(service, make_strategy_config()))
