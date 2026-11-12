@@ -119,6 +119,15 @@ class BarFetchRequest(BaseModel):
         return self
 
 
+class RawBarSeries(BaseModel):
+    """Canonical raw bar payload returned by a market data source."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    symbol: str
+    payload: list[dict[str, object]]
+
+
 class QuarantineRecord(BaseModel):
     """Raw payload rejected by ingestion validation."""
 
