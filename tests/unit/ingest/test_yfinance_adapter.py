@@ -61,9 +61,7 @@ def test_empty_frame_yields_empty_payload() -> None:
 
 
 def test_multi_index_frame_selects_symbol() -> None:
-    columns = pd.MultiIndex.from_product(
-        [["SPY"], ["Open", "High", "Low", "Close", "Volume"]]
-    )
+    columns = pd.MultiIndex.from_product([["SPY"], ["Open", "High", "Low", "Close", "Volume"]])
     frame = pd.DataFrame(
         [[100.0, 100.0, 100.0, 100.0, 1000.0]],
         columns=columns,

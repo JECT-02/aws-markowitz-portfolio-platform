@@ -35,9 +35,7 @@ def build_returns(
     if max_forward_fill_days > 0:
         aligned = aligned.ffill(limit=max_forward_fill_days)
     excluded = {
-        symbol: "insufficient_history"
-        for symbol in aligned.columns
-        if aligned[symbol].isna().any()
+        symbol: "insufficient_history" for symbol in aligned.columns if aligned[symbol].isna().any()
     }
     if excluded:
         aligned = aligned.drop(columns=list(excluded))

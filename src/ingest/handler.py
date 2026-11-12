@@ -102,9 +102,7 @@ def _build_dependencies() -> IngestDependencies:
         bronze_bucket=storage_settings.bronze_bucket,
         quarantine_bucket=storage_settings.quarantine_bucket,
     )
-    calendar = TradingCalendar(
-        TradingClient(api_key=api_key, secret_key=secret_key, paper=True)
-    )
+    calendar = TradingCalendar(TradingClient(api_key=api_key, secret_key=secret_key, paper=True))
     return IngestDependencies(
         service=service,
         calendar=calendar,
