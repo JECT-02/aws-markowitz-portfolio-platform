@@ -17,5 +17,9 @@ class ExternalSourceError(PortfolioError):
     """Raised when an upstream market data source fails."""
 
 
+class MarketDataUnavailableError(ExternalSourceError):
+    """Raised when every configured market data source fails."""
+
+
 class StorageError(PortfolioError):
     """Raised when a storage operation fails."""
