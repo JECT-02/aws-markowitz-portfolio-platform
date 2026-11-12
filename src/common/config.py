@@ -45,6 +45,7 @@ class StrategyConfig(BaseModel):
     transaction_cost_lambda: float | None = Field(default=None, ge=0.0)
     return_shrinkage_alpha: float | None = Field(default=None, ge=0.0, le=1.0)
     window_days: int = Field(default=252, ge=2)
+    ingest_lookback_days: int = Field(default=420, ge=2)
     rebalance_l1_threshold: float = Field(default=0.10, gt=0.0)
     risk_free_rate_annual: float | None = None
     max_forward_fill_days: int | None = Field(default=None, ge=0)
