@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -25,7 +24,7 @@ from optimizer.core.metrics import (
     turnover_l1,
 )
 from optimizer.core.models import PortfolioMetrics, Proposal
-from optimizer.core.problem import MarkowitzOptimizer
+from optimizer.core.problem import INACCURATE_STATUS, MarkowitzOptimizer
 from optimizer.core.repository import ReturnsMatrix, ReturnsRepository
 
 logger = get_logger(__name__)
@@ -79,6 +78,11 @@ class OptimizerService:
                 f"only {matrix.n_assets} assets have sufficient history; {MIN_ASSETS} required"
             )
         estimates = estimate(matrix.values, self._strategy.return_shrinkage_alpha)
+        if actual_weights is None:
+            logger.warning(
+                "actual weights not provided, defaulting to equal weights",
+                extra={"run_id": metadata.run_id},
+            )
         actual = _resolve_actual_weights(
             matrix.symbols,
             self._universe.max_weight,
@@ -92,6 +96,15 @@ class OptimizerService:
             gamma=self._strategy.risk_aversion,
             transaction_cost_lambda=self._strategy.transaction_cost_lambda,
         )
+        if result.status == INACCURATE_STATUS:
+            logger.warning(
+                "solver returned optimal_inaccurate",
+                extra={
+                    "run_id": metadata.run_id,
+                    "assets": matrix.n_assets,
+                    "tolerance": 1e-4,
+                },
+            )
         benchmarks = BenchmarkAllocations(
             equal_weight=equal_weights(matrix.n_assets, self._universe.max_weight),
             minimum_variance=minimum_variance(estimates.covariance, self._universe.max_weight),
@@ -181,8 +194,3 @@ def _resolve_actual_weights(
 
 def _as_weight_mapping(symbols: list[str], weights: np.ndarray) -> dict[str, float]:
     return {symbol: float(weight) for symbol, weight in zip(symbols, weights, strict=True)}
-
-
-def code_version() -> str:
-    """Return the deployed code version label."""
-    return os.environ.get("CODE_VERSION", "unknown")

@@ -14,7 +14,9 @@ MIN_EIGENVALUE = -1e-8
 SUM_TOLERANCE = 1e-6
 BOUND_TOLERANCE = 1e-8
 MIN_ASSETS = 5
-OPTIMAL_STATUSES = frozenset({"optimal"})
+INACCURATE_STATUS = "optimal_inaccurate"
+INACCURATE_TOLERANCE = 1e-4
+OPTIMAL_STATUSES = frozenset({"optimal", INACCURATE_STATUS})
 
 
 @dataclass(frozen=True)
@@ -73,7 +75,7 @@ class MarkowitzOptimizer:
         self._gamma.value = gamma
         self._lambda.value = transaction_cost_lambda
         try:
-            self._problem.solve(solver=self._solver, verbose=False, ignore_dpp=True)
+            self._problem.solve(solver=self._solver, verbose=False)
         except cp.SolverError as exc:
             raise SolverError("solver failed") from exc
         status = str(self._problem.status)
@@ -83,28 +85,43 @@ class MarkowitzOptimizer:
             raise SolverError(f"unexpected solver status: {status}")
         if self._weights.value is None:
             raise SolverError("solver returned no weights")
-        weights = self._clean_weights(np.asarray(self._weights.value, dtype=float))
+        if status == INACCURATE_STATUS:
+            tolerance = INACCURATE_TOLERANCE
+            sum_tolerance = INACCURATE_TOLERANCE
+        else:
+            tolerance = BOUND_TOLERANCE
+            sum_tolerance = SUM_TOLERANCE
+        weights = self._clean_weights(
+            np.asarray(self._weights.value, dtype=float),
+            tolerance=tolerance,
+            sum_tolerance=sum_tolerance,
+        )
         return OptimizationResult(
             weights=weights,
             status=status,
             objective=float(self._problem.value),
         )
 
-    def _clean_weights(self, weights: np.ndarray) -> np.ndarray:
+    def _clean_weights(
+        self,
+        weights: np.ndarray,
+        tolerance: float = BOUND_TOLERANCE,
+        sum_tolerance: float = SUM_TOLERANCE,
+    ) -> np.ndarray:
         if weights.shape != (self._n_assets,):
             raise SolverError("solver returned weights with an invalid shape")
         if not np.isfinite(weights).all():
             raise SolverError("solver returned non-finite weights")
-        if float(weights.min()) < -BOUND_TOLERANCE:
+        if float(weights.min()) < -tolerance:
             raise SolverError("solver violated the long-only constraint")
-        if abs(float(weights.sum()) - 1.0) > SUM_TOLERANCE:
+        if abs(float(weights.sum()) - 1.0) > sum_tolerance:
             raise SolverError("solver violated the budget constraint")
         cleaned = np.clip(weights, 0.0, self._max_weight)
         total = float(cleaned.sum())
         if total <= 0.0:
             raise SolverError("solver returned an empty portfolio")
         cleaned = cleaned / total
-        if float(cleaned.max()) > self._max_weight + BOUND_TOLERANCE:
+        if float(cleaned.max()) > self._max_weight + tolerance:
             raise SolverError("solver violated the position limit")
         return np.asarray(cleaned, dtype=float)
 
