@@ -76,7 +76,12 @@ infra/
     bucket_policy.py
 src/
   common/
+    secrets.py
     state.py
+  ingest/
+    requirements.txt
+  clean/
+    requirements.txt
   optimizer/
     core/
       state_adapter.py
@@ -87,6 +92,7 @@ tests/
     test_data_stack.py
     test_pipeline_stack.py
     test_iac_invariants.py
+    test_requirements.py
     fixtures/
 .github/workflows/
   ci.yml
@@ -99,20 +105,125 @@ tests/
    `infra/app.py`, environment context resolution and the tag helper. No stacks yet.
 3. `DataStack`: buckets, table, topic, DLQs. Infra tests for encryption, public access,
    provisioned capacity, PITR, retention and tags.
-4. Optimizer image: `Dockerfile`, pinned runtime requirements, `DockerImageFunction`, health
-   check through a local test. Verify `arm64` wheels before choosing the architecture; if any
-   dependency lacks them, use `x86_64` and record the reason.
+4. Secrets from SSM: provider protocol, adapter, settings and tests.
 5. State adapter: DynamoDB reads and writes with `Decimal`, conditional proposal transitions,
    failure proposal on `SolverError` or `InfeasibleError`, unit tests with `moto`.
-6. `PipelineStack`: ingest and clean zips, optimizer image, state machine, scheduler and SNS
+6. Lambda packaging: per-function requirements files, Docker bundling asset and a test that
+   pins match `uv.lock`.
+7. Optimizer image: `Dockerfile`, pinned runtime requirements, `DockerImageFunction`, health
+   check through a local test. Verify `arm64` wheels before choosing the architecture; if any
+   dependency lacks them, use `x86_64` and record the reason.
+8. `PipelineStack`: ingest and clean zips, optimizer image, state machine, scheduler and SNS
    wiring. Infra tests for retries, catches, time zone, DLQs, IAM and function settings.
-7. `ObservabilityStack`: alarms for Lambda errors, state machine failures, DLQ depth and missing
+9. `ObservabilityStack`: alarms for Lambda errors, state machine failures, DLQ depth and missing
    daily run; budget with 50, 80 and 100 percent notifications.
-8. CI workflow: OIDC role assumption, no static keys, `cdk synth` and `cdk diff` on pull
-   requests, manual approval gate for any deploy job.
-9. Phase 3 log with real command results and open limitations.
+10. CI workflow: OIDC role assumption, no static keys, `cdk synth` and `cdk diff` on pull
+    requests, manual approval gate for any deploy job.
+11. Phase 3 log with real command results and open limitations.
 
 Each step is one atomic commit, with English messages and no secrets.
+
+## Detailed execution design
+
+### Packaging and build
+
+- Ingest and clean are zip Lambdas built with Docker bundling from `python:3.12-slim`. The
+  bundling command copies `src` and `config` into the asset and installs the function
+  requirements into the same root, so imports resolve as `common`, `ingest`, `clean` and so on.
+  Docker bundling avoids polluting the Windows host and produces manylinux wheels.
+- Each zip function has its own exact-pinned requirements file: `src/ingest/requirements.txt`
+  and `src/clean/requirements.txt`. A test asserts that every pin matches `uv.lock`, so the
+  lockfile stays the single source of truth.
+- boto3 is not bundled. The Lambda runtime provides it, and bundling it risks version drift.
+- The optimizer is a single-stage image from `python:3.12-slim` with pinned requirements, a
+  non-root user, no build tools in the final layer and a `python -c "import cvxpy"` health
+  check. Default platform is `x86_64`; `arm64` is used only after verifying wheels for every
+  dependency.
+- `CONFIG_DIR` is `/var/task/config` for zip functions and `/var/task/config` for the container.
+  The `config` directory is copied into the asset, never read from the developer machine at
+  runtime.
+
+### Secrets
+
+The current ingest handler reads `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` from the environment.
+That conflicts with the design, which requires SSM `SecureString`.
+
+- Add `src/common/secrets.py` with a `SecretProvider` protocol and an SSM implementation that
+  calls `GetParameter` with `WithDecryption=True` and caches values in memory for the life of
+  the Lambda.
+- Add `SecretsSettings.from_environment` with `ALPACA_API_KEY_PARAM` and
+  `ALPACA_SECRET_KEY_PARAM`.
+- The ingest handler receives the provider through its dependencies. Tests use a fake provider;
+  `moto` covers the SSM adapter.
+- Local runners that need the broker use the same provider and therefore need AWS credentials.
+  There is no silent fallback to plain environment variables.
+
+### IAM matrix
+
+| Function | S3 | DynamoDB | SSM | Logs and DLQ |
+|---|---|---|---|---|
+| Ingest | List and Get on bronze, Put on bronze and quarantine prefixes | none | GetParameter on the two Alpaca parameters | PutLogEvents, SendMessage to its DLQ |
+| Clean | List and Get on bronze, Put on silver | none | none | PutLogEvents, SendMessage to its DLQ |
+| Optimizer | List and Get on silver, Put on gold | GetItem and conditional PutItem on the state table | none | PutLogEvents, SendMessage to its DLQ |
+| State machine | none | none | none | SNS Publish, SQS SendMessage to its DLQ |
+
+No policy uses `Action: "*"` or `Resource: "*"`. Prefix conditions use the bucket ARN plus
+`/*` only for the allowed key prefixes.
+
+### State machine
+
+```text
+Ingest (Lambda, retry on service and throttling errors)
+  Catch -> NotifyFailure -> Fail
+Choice on $.status
+  SKIPPED -> Succeed
+  default -> Clean -> Optimizer -> NotifySuccess -> Succeed
+Clean or Optimizer failure
+  Catch -> NotifyFailure -> Fail
+```
+
+- The state machine is Standard, with a 15 minute timeout and an SQS DLQ.
+- Retries: three attempts, exponential backoff with jitter, for transient Lambda and network
+  errors. Business failures such as infeasible or solver errors are not retried.
+- Only metadata is passed between states. Price series stay in S3.
+- `NotifyFailure` publishes to SNS, then the execution fails so the alarm fires.
+
+### DynamoDB access patterns
+
+The table keeps the `pk` and `sk` design from `Architecture.md` section 10.
+
+- Read `pk=STATE, sk=CURRENT` to obtain actual weights. Missing item means equal weights as the
+  prior, with a warning and no invented state.
+- Write `pk=PROPOSAL, sk={proposal_id}` with `attribute_not_exists` to avoid overwriting a
+  proposal with the same id.
+- Failure records use status `FAILED` and add an optional `error` attribute. This is an additive
+  schema change and requires approval before implementation.
+- All numbers are `Decimal`, and NaN or infinity is rejected before writing.
+
+### Function environment contract
+
+| Variable | Ingest | Clean | Optimizer |
+|---|---|---|---|
+| `AWS_REGION` | runtime | runtime | runtime |
+| `CODE_VERSION` | context | context | context |
+| `CONFIG_DIR` | `/var/task/config` | `/var/task/config` | `/var/task/config` |
+| `BRONZE_BUCKET` | yes | yes | no |
+| `QUARANTINE_BUCKET` | yes | no | no |
+| `SILVER_BUCKET` | no | yes | yes |
+| `GOLD_BUCKET` | no | no | yes |
+| `STATE_TABLE` | no | no | yes |
+| `ALPACA_API_KEY_PARAM` | yes | no | no |
+| `ALPACA_SECRET_KEY_PARAM` | yes | no | no |
+| strategy values | yes | yes | yes |
+
+### CI workflow
+
+- Pull requests: `ruff format --check`, `ruff check`, `mypy --strict`, `pytest`, `cdk synth` and
+  `cdk diff` against a read-only role.
+- The deploy job is manual (`workflow_dispatch`), gated by a GitHub environment with required
+  reviewers, and is the only job with write permissions. It is not part of this branch.
+- OIDC only. The role ARN comes from repository variables, never from a committed file.
+- Third-party actions are pinned by commit SHA.
 
 ## Contracts to preserve
 
@@ -164,6 +275,8 @@ only adds the DynamoDB records described in `Architecture.md` section 10.
    manually. The email address is not committed.
 5. Confirm the Lambda architecture after verifying `arm64` wheels for `cvxpy`, `clarabel`,
    `scikit-learn`, `numpy`, `scipy` and `pyarrow`.
+6. Approve the additive `error` attribute on `FAILED` proposal records. No existing field
+   changes. If rejected, failures stay only in logs and SNS.
 
 ## Risks
 
