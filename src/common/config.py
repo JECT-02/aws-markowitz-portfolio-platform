@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from common.env import require_variable
 from common.errors import ConfigurationError
 
 _STORAGE_ENV = {
@@ -30,6 +31,26 @@ _STRATEGY_ENV = {
     "validation_alphas": "VALIDATION_ALPHAS",
     "validation_windows": "VALIDATION_WINDOWS",
 }
+
+
+class RuntimeSettings(BaseModel):
+    """Runtime infrastructure settings resolved from the environment."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    aws_region: str = Field(min_length=1)
+    code_version: str = Field(min_length=1)
+    config_dir: Path
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> RuntimeSettings:
+        """Build runtime settings from required environment variables."""
+        source = os.environ if environ is None else environ
+        return cls(
+            aws_region=require_variable(source, "AWS_REGION"),
+            code_version=require_variable(source, "CODE_VERSION"),
+            config_dir=Path(require_variable(source, "CONFIG_DIR")),
+        )
 
 
 class UniverseConfig(BaseModel):
@@ -82,22 +103,44 @@ class StrategyConfig(BaseModel):
         try:
             return cls.model_validate(
                 {
-                    "risk_aversion": float(raw["risk_aversion"]),
-                    "transaction_cost_lambda": float(raw["transaction_cost_lambda"]),
-                    "return_shrinkage_alpha": float(raw["return_shrinkage_alpha"]),
-                    "risk_free_rate_annual": float(raw["risk_free_rate_annual"]),
-                    "max_forward_fill_days": int(raw["max_forward_fill_days"]),
-                    "window_days": int(raw["window_days"]),
-                    "ingest_lookback_days": int(raw["ingest_lookback_days"]),
-                    "rebalance_l1_threshold": float(raw["rebalance_l1_threshold"]),
-                    "validation_gammas": _parse_float_list(raw["validation_gammas"]),
-                    "validation_lambdas": _parse_float_list(raw["validation_lambdas"]),
-                    "validation_alphas": _parse_float_list(raw["validation_alphas"]),
-                    "validation_windows": _parse_int_list(raw["validation_windows"]),
+                    "risk_aversion": _parse_number(raw["risk_aversion"], "risk_aversion"),
+                    "transaction_cost_lambda": _parse_number(
+                        raw["transaction_cost_lambda"], "transaction_cost_lambda"
+                    ),
+                    "return_shrinkage_alpha": _parse_number(
+                        raw["return_shrinkage_alpha"], "return_shrinkage_alpha"
+                    ),
+                    "risk_free_rate_annual": _parse_number(
+                        raw["risk_free_rate_annual"], "risk_free_rate_annual"
+                    ),
+                    "max_forward_fill_days": _parse_integer(
+                        raw["max_forward_fill_days"], "max_forward_fill_days"
+                    ),
+                    "window_days": _parse_integer(raw["window_days"], "window_days"),
+                    "ingest_lookback_days": _parse_integer(
+                        raw["ingest_lookback_days"], "ingest_lookback_days"
+                    ),
+                    "rebalance_l1_threshold": _parse_number(
+                        raw["rebalance_l1_threshold"], "rebalance_l1_threshold"
+                    ),
+                    "validation_gammas": _parse_float_list(
+                        raw["validation_gammas"], "validation_gammas"
+                    ),
+                    "validation_lambdas": _parse_float_list(
+                        raw["validation_lambdas"], "validation_lambdas"
+                    ),
+                    "validation_alphas": _parse_float_list(
+                        raw["validation_alphas"], "validation_alphas"
+                    ),
+                    "validation_windows": _parse_int_list(
+                        raw["validation_windows"], "validation_windows"
+                    ),
                 }
             )
-        except (TypeError, ValueError, ValidationError) as exc:
-            raise ConfigurationError("invalid strategy environment variables") from exc
+        except ValidationError as exc:
+            fields = sorted({str(error["loc"][0]) for error in exc.errors() if error["loc"]})
+            names = ", ".join(_STRATEGY_ENV[field] for field in fields if field in _STRATEGY_ENV)
+            raise ConfigurationError(f"invalid strategy environment variables: {names}") from exc
 
 
 class StorageSettings(BaseModel):
@@ -148,15 +191,33 @@ def load_universe_config(path: Path) -> UniverseConfig:
         raise ConfigurationError(f"invalid universe configuration: {path}") from exc
 
 
-def _parse_float_list(value: str) -> list[float]:
-    parts = [part.strip() for part in value.split(",") if part.strip()]
-    if not parts:
-        raise ConfigurationError("validation list must not be empty")
-    return [float(part) for part in parts]
+def _parse_number(value: str, field: str) -> float:
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ConfigurationError(
+            f"invalid value for environment variable {_STRATEGY_ENV[field]}"
+        ) from exc
 
 
-def _parse_int_list(value: str) -> list[int]:
+def _parse_integer(value: str, field: str) -> int:
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ConfigurationError(
+            f"invalid value for environment variable {_STRATEGY_ENV[field]}"
+        ) from exc
+
+
+def _parse_float_list(value: str, field: str) -> list[float]:
     parts = [part.strip() for part in value.split(",") if part.strip()]
     if not parts:
-        raise ConfigurationError("validation list must not be empty")
-    return [int(part) for part in parts]
+        raise ConfigurationError(f"{_STRATEGY_ENV[field]} must not be empty")
+    return [_parse_number(part, field) for part in parts]
+
+
+def _parse_int_list(value: str, field: str) -> list[int]:
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        raise ConfigurationError(f"{_STRATEGY_ENV[field]} must not be empty")
+    return [_parse_integer(part, field) for part in parts]
