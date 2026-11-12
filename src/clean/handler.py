@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,12 +7,13 @@ from pathlib import Path
 from clean.core.service import CleanService
 from common.clock import Clock, SystemClock
 from common.config import (
+    RuntimeSettings,
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
-    load_strategy_config,
     load_universe_config,
 )
+from common.env import load_env_file
 from common.errors import ConfigurationError
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
@@ -45,7 +45,7 @@ def run_clean(event: Mapping[str, object], deps: CleanDependencies) -> dict[str,
     result = deps.service.run(
         metadata,
         deps.universe.tickers,
-        deps.strategy.require_forward_fill_days(),
+        deps.strategy.max_forward_fill_days,
     )
     logger.info(
         "clean completed",
@@ -71,17 +71,18 @@ def run_clean(event: Mapping[str, object], deps: CleanDependencies) -> dict[str,
 
 def handler(event: Mapping[str, object], _context: object | None = None) -> dict[str, object]:
     """AWS Lambda entry point for the clean stage."""
+    load_env_file(Path(".env"))
     configure_logging()
     return run_clean(event, _build_dependencies())
 
 
 def _build_dependencies() -> CleanDependencies:
+    runtime = RuntimeSettings.from_environment()
     storage_settings = StorageSettings.from_environment()
-    config_dir = Path(os.environ.get("CONFIG_DIR", "config"))
-    universe = load_universe_config(config_dir / "universe.yaml")
-    strategy = load_strategy_config(config_dir / "strategy.yaml")
+    universe = load_universe_config(runtime.config_dir / "universe.yaml")
+    strategy = StrategyConfig.from_environment()
     service = CleanService(
-        storage=S3Storage(),
+        storage=S3Storage(region_name=runtime.aws_region),
         bronze_bucket=storage_settings.bronze_bucket,
         silver_bucket=storage_settings.silver_bucket,
     )
@@ -90,7 +91,7 @@ def _build_dependencies() -> CleanDependencies:
         clock=SystemClock(),
         universe=universe,
         strategy=strategy,
-        code_version=os.environ.get("CODE_VERSION", "unknown"),
+        code_version=runtime.code_version,
     )
 
 

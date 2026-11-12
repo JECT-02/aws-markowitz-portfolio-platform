@@ -36,8 +36,10 @@ class ObjectStorage(Protocol):
 class S3Storage:
     """Object storage backed by Amazon S3."""
 
-    def __init__(self, client: S3Client | None = None) -> None:
-        self._client: S3Client = client if client is not None else boto3.client("s3")
+    def __init__(self, client: S3Client | None = None, region_name: str | None = None) -> None:
+        self._client: S3Client = (
+            client if client is not None else boto3.client("s3", region_name=region_name)
+        )
 
     def exists(self, bucket: str, key: str) -> bool:
         try:

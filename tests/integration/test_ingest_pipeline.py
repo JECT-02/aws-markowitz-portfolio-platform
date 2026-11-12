@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 
 import boto3
@@ -63,7 +64,9 @@ def _raw(symbol: str, closes: dict[int, float]) -> RawBarSeries:
 
 
 @mock_aws
-def test_ingest_then_clean_writes_silver() -> None:
+def test_ingest_then_clean_writes_silver(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
     client = boto3.client("s3", region_name="us-east-1")
     for bucket in ("bronze", "quarantine", "silver"):
         client.create_bucket(Bucket=bucket)
@@ -80,7 +83,7 @@ def test_ingest_then_clean_writes_silver() -> None:
         calendar=_OpenCalendar(),
         clock=_FixedClock(datetime(2024, 1, 3, 22, 0, tzinfo=UTC)),
         universe=UniverseConfig(tickers=["SPY"], max_weight=0.20),
-        strategy=StrategyConfig(max_forward_fill_days=2),
+        strategy=make_strategy_config(),
         code_version="abc",
     )
     outcome = run_ingestion({"run_date": "2024-01-03", "run_id": "run-1"}, deps)
