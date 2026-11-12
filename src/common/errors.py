@@ -21,5 +21,13 @@ class MarketDataUnavailableError(ExternalSourceError):
     """Raised when every configured market data source fails."""
 
 
+class SolverError(PortfolioError):
+    """Raised when the numerical solver fails or returns invalid output."""
+
+
+class InfeasibleError(PortfolioError):
+    """Raised when the optimization problem has no feasible solution."""
+
+
 class StorageError(PortfolioError):
     """Raised when a storage operation fails."""
