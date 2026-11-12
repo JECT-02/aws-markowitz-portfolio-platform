@@ -25,6 +25,7 @@ SCHEMA = pa.schema(
 class _MemoryStorage(ObjectStorage):
     def __init__(self) -> None:
         self._objects: dict[tuple[str, str], bytes] = {}
+        self.reads: list[str] = []
 
     def exists(self, bucket: str, key: str) -> bool:
         return (bucket, key) in self._objects
@@ -47,6 +48,7 @@ class _MemoryStorage(ObjectStorage):
         self._objects[(bucket, key)] = buffer.getvalue()
 
     def read_parquet(self, bucket: str, key: str) -> pa.Table:
+        self.reads.append(key)
         return pq.read_table(io.BytesIO(self._objects[(bucket, key)]))
 
     def list_keys(self, bucket: str, prefix: str) -> list[str]:
@@ -85,6 +87,43 @@ def test_loads_aligned_trailing_window() -> None:
     assert matrix.values.shape == (5, 2)
     assert matrix.dates == [date(2024, 1, 4) + timedelta(days=offset) for offset in range(5)]
     assert matrix.excluded == {}
+
+
+def test_loads_more_history_when_requested() -> None:
+    storage, repository = _repository()
+    storage.write_parquet("silver", "year=2024/month=01/returns.parquet", _table(_rows(8)))
+    matrix = repository.load(["SPY", "QQQ"], window_days=5, max_days=8)
+    assert matrix.n_observations == 8
+
+
+def test_max_days_below_window_is_rejected() -> None:
+    _, repository = _repository()
+    with pytest.raises(DataValidationError):
+        repository.load(["SPY"], window_days=5, max_days=4)
+
+
+def _month_rows(month: int, days: int) -> list[tuple[date, str, float]]:
+    return [
+        (date(2024, month, day), symbol, 0.001 * (index + 1))
+        for day in range(1, days + 1)
+        for index, symbol in enumerate(("SPY", "QQQ"))
+    ]
+
+
+def test_reads_only_the_newest_partitions_needed() -> None:
+    storage, repository = _repository()
+    for month in (1, 2, 3):
+        storage.write_parquet(
+            "silver",
+            f"year=2024/month={month:02d}/returns.parquet",
+            _table(_month_rows(month, 5)),
+        )
+    matrix = repository.load(["SPY", "QQQ"], window_days=6)
+    assert matrix.n_observations == 6
+    assert storage.reads == [
+        "year=2024/month=03/returns.parquet",
+        "year=2024/month=02/returns.parquet",
+    ]
 
 
 def test_missing_symbol_is_excluded() -> None:
