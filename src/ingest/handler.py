@@ -11,13 +11,13 @@ from alpaca.trading.client import TradingClient
 
 from common.clock import Clock, SystemClock
 from common.config import (
+    RuntimeSettings,
     StorageSettings,
     StrategyConfig,
     UniverseConfig,
-    load_strategy_config,
     load_universe_config,
 )
-from common.errors import ConfigurationError
+from common.env import load_env_file, require_variable
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
@@ -80,21 +80,20 @@ def run_ingestion(event: Mapping[str, object], deps: IngestDependencies) -> dict
 
 def handler(event: Mapping[str, object], _context: object | None = None) -> dict[str, object]:
     """AWS Lambda entry point for the ingest stage."""
+    load_env_file(Path(".env"))
     configure_logging()
     return run_ingestion(event, _build_dependencies())
 
 
 def _build_dependencies() -> IngestDependencies:
-    api_key = os.environ.get("ALPACA_API_KEY")
-    secret_key = os.environ.get("ALPACA_SECRET_KEY")
-    if not api_key or not secret_key:
-        raise ConfigurationError("ALPACA_API_KEY and ALPACA_SECRET_KEY are required")
+    api_key = require_variable(os.environ, "ALPACA_API_KEY")
+    secret_key = require_variable(os.environ, "ALPACA_SECRET_KEY")
+    runtime = RuntimeSettings.from_environment()
     storage_settings = StorageSettings.from_environment()
-    config_dir = Path(os.environ.get("CONFIG_DIR", "config"))
-    universe = load_universe_config(config_dir / "universe.yaml")
-    strategy = load_strategy_config(config_dir / "strategy.yaml")
+    universe = load_universe_config(runtime.config_dir / "universe.yaml")
+    strategy = StrategyConfig.from_environment()
     clock = SystemClock()
-    storage = S3Storage()
+    storage = S3Storage(region_name=runtime.aws_region)
     service = IngestService(
         primary=AlpacaMarketDataSource(api_key, secret_key, feed=DataFeed.IEX),
         fallback=YFinanceMarketDataSource(),
@@ -109,5 +108,5 @@ def _build_dependencies() -> IngestDependencies:
         clock=clock,
         universe=universe,
         strategy=strategy,
-        code_version=os.environ.get("CODE_VERSION", "unknown"),
+        code_version=runtime.code_version,
     )

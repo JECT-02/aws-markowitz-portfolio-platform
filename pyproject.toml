@@ -58,12 +58,12 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["alpaca.*", "pyarrow.*", "yfinance.*", "moto.*"]
+module = ["alpaca.*", "cvxpy.*", "pyarrow.*", "sklearn.*", "yfinance.*", "moto.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --import-mode=importlib"
 
 [tool.coverage.run]
 branch = true

@@ -1,7 +1,12 @@
-risk_aversion: null
-transaction_cost_lambda: null
-return_shrinkage_alpha: null
-window_days: 252
-rebalance_l1_threshold: 0.10
-risk_free_rate_annual: null
-max_forward_fill_days: null
+risk_aversion:
+transaction_cost_lambda:
+return_shrinkage_alpha:
+window_days:
+rebalance_l1_threshold:
+risk_free_rate_annual:
+max_forward_fill_days:
+ingest_lookback_days:
+validation_gammas:
+validation_lambdas:
+validation_alphas:
+validation_windows:

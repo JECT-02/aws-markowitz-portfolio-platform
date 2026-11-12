@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage check synth diff run-optimizer-local run-backtest-local build-optimizer
+.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check synth diff run-optimizer-local run-backtest-local build-optimizer
 
 install:
 	uv sync
@@ -30,6 +30,9 @@ test-infra:
 
 coverage:
 	uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+coverage-core:
+	uv run pytest --cov=src/optimizer/core --cov=src/backtest/core --cov-report=term-missing --cov-fail-under=90
 
 check: format lint typecheck security test-unit test-property test-integration test-infra coverage
 
