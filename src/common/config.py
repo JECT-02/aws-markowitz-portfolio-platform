@@ -100,7 +100,6 @@ class StrategyConfig(BaseModel):
             raise ConfigurationError("invalid strategy environment variables") from exc
 
 
-
 class StorageSettings(BaseModel):
     """Bucket names resolved from the runtime environment."""
 
