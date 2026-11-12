@@ -55,7 +55,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["alpaca.*", "yfinance.*", "moto.*"]
+module = ["alpaca.*", "pyarrow.*", "yfinance.*", "moto.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
