@@ -5,6 +5,30 @@ removal of the GitHub Actions workflow.
 Design reference: `Architecture.md` (sections 9, 14, 15, 16 and 18),
 `AGENTS.md` (sections 1, 2, 7, 8, 11, 12 and 17).
 
+## Refined delivery: one branch per PR
+
+The phase is split into three sequential branches; each one is its own PR and
+must pass the full verification checklist before the next one starts.
+
+| # | Branch | Content |
+|---|---|---|
+| 1 | `feat/reader-lambda` | `src/reader/core/` pure logic, response models, `handler.py` with HTTP API v2 routing, unit and moto tests. No CDK changes. |
+| 2 | `feat/api-stack` | `infra/stacks/api_stack.py`: Cognito (PKCE, MFA optional), HTTP API with JWT authorizer, restricted CORS, throttling, least-privilege Reader Lambda. `app.py` wiring, infra tests, reviewed `cdk synth`/`cdk diff`. |
+| 3 | `feat/web-spa` | `web/` static SPA (Cognito PKCE login, pinned Plotly.js) plus `infra/stacks/web_stack.py` (S3 BLOCK_ALL, CloudFront OAC). Infra tests. |
+
+## Decisions taken at planning time
+
+- `GET /backtest` is implemented now and returns `404` with an explicit message
+  until the weekly cloud backtest exists (Phase 6); this keeps a stable API
+  contract for the SPA.
+- `GET /monitor` returns the reconciled `STATE/CURRENT` weights when available
+  (Phase 5 writes them) with the drift of the latest proposal as fallback
+  context. No `MONITOR` partition reads until Phase 6.
+- The Reader reuses `optimizer.core.models.Proposal` to parse Gold documents:
+  the stored JSON is exactly that model's dump; no duplicated schema.
+- Cognito MFA is configured as `OPTIONAL` (recommended) for the single-user
+  workload, which is reversible; moving to `REQUIRED` is a later decision.
+
 ## Objective
 
 Expose the state produced by the Phase 3 pipeline through a private HTTP API and
