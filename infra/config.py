@@ -45,6 +45,7 @@ class DeployConfig:
     api_key_parameter: str
     secret_key_parameter: str
     strategy_environment: Mapping[str, str]
+    spa_allowed_origin: str | None = None
 
 
 def load_deploy_config(
@@ -72,6 +73,7 @@ def load_deploy_config(
             DEFAULT_SECRET_KEY_PARAMETER,
         ),
         strategy_environment=load_strategy_environment(config_dir),
+        spa_allowed_origin=_blank_to_none(source.get("SPA_ALLOWED_ORIGIN")),
     )
 
 

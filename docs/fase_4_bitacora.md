@@ -1,5 +1,51 @@
 # Fase 4 — Bitácora
 
+## Rama `feat/api-stack`: Cognito + HTTP API + Reader (2026-11-13)
+
+Cuatro commits atómicos:
+
+1. **Imagen del reader**: `src/reader/Dockerfile` (base lambda python 3.12, usuario
+   no root, `CMD ["reader.handler.handler"]`) y `requirements.txt` con solo las
+   dependencias alcanzables (`pyarrow`, `pydantic`, `PyYAML`, versiones fijadas a
+   `uv.lock`). `tests/infra/test_requirements.py` ampliado al reader.
+2. **DLQ opcional**: `container_function(dlq=None)`; la Lambda Reader es síncrona
+   (API Gateway) y la DLQ solo aplica a invocaciones asíncronas.
+3. **Cognito**: `UserPool` (sign-in email, auto-registro deshabilitado, MFA
+   opcional con TOTP, password policy 12+), `UserPoolClient` público sin secret,
+   solo SRP/refresh, OAuth deshabilitado hasta la rama `feat/web-spa` (CDK por
+   defecto habilitaría implicit+code con callback example.com; se apagó
+   explícitamente).
+4. **HTTP API**: `HttpApi` con autorizador JWT de Cognito
+   (`HttpUserPoolAuthorizer`, identity source `Authorization`), 4 rutas GET
+   (`/proposal`, `/metrics`, `/monitor`, `/backtest`) protegidas, throttling
+   rate 10/s burst 5, IAM mínimo (s3:GetObject sobre gold/*, dynamodb:GetItem
+   sobre la tabla), memoria 256 MB, timeout 10 s, logs 3 días, sin DLQ.
+   Nueva variable `SPA_ALLOWED_ORIGIN` (vacía): al definirla se configura CORS
+   restringido a ese origen; sin ella no hay CORS (no hay SPA todavía).
+
+### Decisiones técnicas
+
+- En esta versión de `aws-cdk-lib`, `HttpAuthorizer` no implementa `bind`; el
+  autorizador correcto para rutas es `HttpUserPoolAuthorizer` del módulo
+  `aws_apigatewayv2_authorizers`.
+- El throttling se aplica mutando el `CfnStage` del stage `$default`
+  (`DefaultRouteSettings`); crear un `HttpStage` explícito duplica el stage.
+- El reader requiere `CONFIG_DIR` y los 4 nombres de bucket por los contratos
+  existentes de `RuntimeSettings`/`StorageSettings` aunque no los usa; se
+  inyectan por entorno sin refactor.
+- La imagen del reader no se pudo construir localmente: el daemon de Docker no
+  estaba corriendo. La verificación de dependencias fue estática (imports
+  alcanzables) y los pins contra `uv.lock`; pendiente verificar el build cuando
+  Docker esté activo.
+
+### Costo estimado mensual
+
+- Cognito 1 MAU: $0 (capa gratuita).
+- HTTP API + Lambda 256 MB/10 s para unas decenas de llamadas diarias: $0
+  dentro del free tier.
+- ECR reader repo: ~$0 (una imagen pequeña).
+
+
 ## Punto de partida: correcciones teóricas (`fix/invariantes-teoricos`)
 
 Rama creada desde `main` (`d81ff11`) tras una revisión completa del código contra `AGENTS.md`.

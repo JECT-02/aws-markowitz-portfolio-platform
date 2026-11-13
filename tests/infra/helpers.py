@@ -3,7 +3,11 @@ from __future__ import annotations
 from infra.config import DeployConfig
 
 
-def deploy_config(*, notification_email: str | None = None) -> DeployConfig:
+def deploy_config(
+    *,
+    notification_email: str | None = None,
+    spa_allowed_origin: str | None = None,
+) -> DeployConfig:
     """Build a deterministic deploy configuration for template tests."""
     return DeployConfig(
         env_name="test",
@@ -28,4 +32,5 @@ def deploy_config(*, notification_email: str | None = None) -> DeployConfig:
             "VALIDATION_ALPHAS": "0.0,0.5",
             "VALIDATION_WINDOWS": "126,252",
         },
+        spa_allowed_origin=spa_allowed_origin,
     )

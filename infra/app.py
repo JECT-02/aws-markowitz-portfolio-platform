@@ -37,6 +37,7 @@ def main() -> None:
         app,
         f"{PROJECT_NAME}-api-{config.env_name}",
         config=config,
+        data=data,
         env=environment,
     )
     app.synth()
