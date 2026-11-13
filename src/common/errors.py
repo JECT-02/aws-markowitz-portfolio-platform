@@ -53,6 +53,10 @@ class ProposalExpired(PortfolioError):
     """Raised when a proposal is no longer valid for execution."""
 
 
+class ProposalNotPending(PortfolioError):
+    """Raised when a proposal is not in the PENDING state for execution."""
+
+
 class MarketClosed(PortfolioError):
     """Raised when order submission is attempted while the market is closed."""
 

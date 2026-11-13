@@ -61,9 +61,7 @@ def test_planning_invariants(
     assert len(set(identifiers)) == len(identifiers)
     assert all(order.quantity > 0.0 for order in orders)
     assert all(order.notional >= min_notional for order in orders)
-    assert all(
-        math.isfinite(order.quantity) and math.isfinite(order.notional) for order in orders
-    )
+    assert all(math.isfinite(order.quantity) and math.isfinite(order.notional) for order in orders)
     assert all(
         order.client_order_id == f"prop-{order.symbol}-{order.side.value}" for order in orders
     )

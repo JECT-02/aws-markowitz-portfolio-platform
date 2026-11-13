@@ -123,9 +123,7 @@ class DynamoExecutionState:
             values[":error"] = {"S": result.error[:900]}
         elif result.reconciliation is not None:
             expression = f"{expression}, account_value = :account_value"
-            values[":account_value"] = {
-                "N": decimal_string(result.reconciliation.account_value)
-            }
+            values[":account_value"] = {"N": decimal_string(result.reconciliation.account_value)}
         try:
             self._client.update_item(
                 TableName=self._table_name,
@@ -197,6 +195,7 @@ class DynamoExecutionState:
             proposal_id=proposal_id,
             status="EXECUTING",
             result=None,
+            fresh=True,
         )
 
     def write_idempotency_result(
@@ -293,4 +292,5 @@ def _parse_claim(idempotency_key: str, item: dict[str, Any]) -> IdempotencyClaim
         proposal_id=proposal_id,
         status=status,
         result=result,
+        fresh=False,
     )

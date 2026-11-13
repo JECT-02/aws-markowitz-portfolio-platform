@@ -81,9 +81,26 @@ def _matrix(symbols: list[str] = SYMBOLS) -> ReturnsMatrix:
     )
 
 
+class _Prices:
+    def __init__(self, prices: dict[str, float]) -> None:
+        self._prices = prices
+        self.calls: list[tuple[date, DataSource]] = []
+
+    def load_reference_prices(self, run_date: date, source: DataSource) -> dict[str, float]:
+        self.calls.append((run_date, source))
+        if not self._prices:
+            raise DataValidationError("no bronze reference prices for the run date")
+        return self._prices
+
+
+def _prices_for(symbols: list[str]) -> _Prices:
+    return _Prices({symbol: 100.0 for symbol in symbols})
+
+
 def _service(
     matrix: ReturnsMatrix | None = None,
     symbols: list[str] = SYMBOLS,
+    prices: _Prices | None = None,
 ) -> tuple[OptimizerService, _Repository, _Storage, StrategyConfig]:
     repository = _Repository(matrix if matrix is not None else _matrix(symbols))
     storage = _Storage()
@@ -99,7 +116,7 @@ def _service(
             "rebalance_l1_threshold": 0.10,
             "validation_gammas": [1.0, 2.0],
             "validation_lambdas": [0.0, 0.001],
-            "validation_alphas": [0.0, 0.5],
+            "validation_alphas": [0.5],
             "validation_windows": [126, 252],
             "validation_folds": 3,
         }
@@ -111,6 +128,7 @@ def _service(
         universe=UniverseConfig(tickers=symbols, max_weight=0.20),
         strategy=strategy,
         clock=_Clock(),
+        prices=prices if prices is not None else _prices_for(symbols),
     )
     return service, repository, storage, strategy
 
@@ -188,4 +206,26 @@ def test_service_requires_spy_benchmark() -> None:
     symbols = ["QQQ", "IWM", "EFA", "TLT", "GLD", "VNQ"]
     service, _, _, _ = _service(_matrix(symbols), symbols)
     with pytest.raises(DataValidationError):
+        service.run(_metadata())
+
+
+def test_service_writes_reference_prices_to_gold() -> None:
+    service, _, storage, _ = _service()
+    service.run(_metadata())
+    stored = storage.json_objects[("gold", "run_date=2025-01-02/prices.json")]
+    assert stored["prices"] == {symbol: 100.0 for symbol in SYMBOLS}
+
+
+def test_service_rejects_missing_reference_prices() -> None:
+    prices = _Prices({})
+    service, _, _, _ = _service(prices=prices)
+    with pytest.raises(DataValidationError, match="reference prices"):
+        service.run(_metadata())
+    assert prices.calls == [(date(2025, 1, 2), DataSource.ALPACA)]
+
+
+def test_service_rejects_partial_reference_prices() -> None:
+    prices = _Prices({symbol: 100.0 for symbol in SYMBOLS[:-1]})
+    service, _, _, _ = _service(prices=prices)
+    with pytest.raises(DataValidationError, match=SYMBOLS[-1]):
         service.run(_metadata())

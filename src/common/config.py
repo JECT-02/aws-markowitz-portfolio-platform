@@ -130,9 +130,7 @@ class StrategyConfig(BaseModel):
                         raw["max_forward_fill_days"],
                         _STRATEGY_ENV["max_forward_fill_days"],
                     ),
-                    "window_days": _parse_integer(
-                        raw["window_days"], _STRATEGY_ENV["window_days"]
-                    ),
+                    "window_days": _parse_integer(raw["window_days"], _STRATEGY_ENV["window_days"]),
                     "ingest_lookback_days": _parse_integer(
                         raw["ingest_lookback_days"],
                         _STRATEGY_ENV["ingest_lookback_days"],

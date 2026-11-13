@@ -21,7 +21,10 @@ from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
 from common.storage import S3Storage
 from optimizer.core.models import Proposal
-from optimizer.core.repository import SilverReturnsRepository
+from optimizer.core.repository import (
+    BronzePricesRepository,
+    SilverReturnsRepository,
+)
 from optimizer.core.service import OptimizerService
 from optimizer.core.state_adapter import (
     DynamoPortfolioState,
@@ -108,6 +111,7 @@ def build_dependencies() -> OptimizerDependencies:
         universe=universe,
         strategy=strategy,
         clock=clock,
+        prices=BronzePricesRepository(storage, storage_settings.bronze_bucket),
     )
     return OptimizerDependencies(
         service=service,

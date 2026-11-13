@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from executor.core.models import BrokerPosition, OrderSide, OrderStatus
+from executor.core.models import BrokerPosition, OrderSide, OrderSnapshot
 
 
 class BrokerPort(Protocol):
@@ -27,6 +27,6 @@ class BrokerPort(Protocol):
         symbol: str,
         side: OrderSide,
         quantity: float,
-    ) -> OrderStatus: ...
+    ) -> OrderSnapshot: ...
 
-    def get_order_status(self, client_order_id: str) -> OrderStatus: ...
+    def get_order_status(self, client_order_id: str) -> OrderSnapshot: ...

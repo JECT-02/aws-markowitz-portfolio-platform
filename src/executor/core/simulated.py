@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from executor.core.models import BrokerPosition, OrderSide, OrderStatus
+from executor.core.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,9 @@ class _SimulatedOrder:
     requested: float
     filled: float
     status: OrderStatus
+
+    def snapshot(self) -> OrderSnapshot:
+        return OrderSnapshot(status=self.status, filled_quantity=self.filled)
 
 
 class SimulatedBroker:
@@ -77,14 +80,14 @@ class SimulatedBroker:
         symbol: str,
         side: OrderSide,
         quantity: float,
-    ) -> OrderStatus:
+    ) -> OrderSnapshot:
         if not self._market_open:
             raise RuntimeError("market is closed")
         recorded = self._orders.get(client_order_id)
         if recorded is not None:
-            return recorded.status
+            return recorded.snapshot()
         if client_order_id in self._unknown_orders:
-            return OrderStatus.UNKNOWN
+            return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
         symbol = symbol.strip().upper()
         if symbol in self._reject_symbols:
             status = OrderStatus.REJECTED
@@ -102,13 +105,13 @@ class SimulatedBroker:
         )
         self.submitted.append((client_order_id, symbol, side, quantity))
         self._apply_fill(symbol, side, filled)
-        return status
+        return self._orders[client_order_id].snapshot()
 
-    def get_order_status(self, client_order_id: str) -> OrderStatus:
+    def get_order_status(self, client_order_id: str) -> OrderSnapshot:
         order = self._orders.get(client_order_id)
         if order is None:
-            return OrderStatus.UNKNOWN
-        return order.status
+            return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+        return order.snapshot()
 
     def _apply_fill(self, symbol: str, side: OrderSide, filled: float) -> None:
         current = self._positions.get(symbol)

@@ -124,6 +124,22 @@ class FilledOrder(BaseModel):
         return value
 
 
+class OrderSnapshot(BaseModel):
+    """Broker-reported state of one order at a point in time."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    status: OrderStatus
+    filled_quantity: float
+
+    @field_validator("filled_quantity")
+    @classmethod
+    def _validate_non_negative(cls, value: float) -> float:
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError("filled quantity must be finite and non-negative")
+        return value
+
+
 class Reconciliation(BaseModel):
     """Weights derived from real broker positions after execution."""
 
@@ -209,6 +225,7 @@ class IdempotencyClaim(BaseModel):
     proposal_id: str
     status: str
     result: ExecutionResult | None = None
+    fresh: bool = False
 
 
 def decimal_string(value: float) -> str:

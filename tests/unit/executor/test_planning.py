@@ -92,8 +92,9 @@ class TestPlanOrders:
 class TestSimulatedBroker:
     def test_fills_fill_the_position(self) -> None:
         broker = SimulatedBroker([], equity=1_000.0, prices={"AAA": 10.0})
-        status = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
-        assert status is OrderStatus.FILLED
+        snapshot = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
+        assert snapshot.status is OrderStatus.FILLED
+        assert snapshot.filled_quantity == pytest.approx(10.0)
         assert broker.get_positions()[0].quantity == pytest.approx(10.0)
 
     def test_sell_respects_zero_floor(self) -> None:
@@ -109,7 +110,7 @@ class TestSimulatedBroker:
         broker = SimulatedBroker([], equity=1_000.0, prices={"AAA": 10.0})
         first = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
         second = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
-        assert first is second
+        assert first == second
         assert len(broker.submitted) == 1
 
     def test_partial_fill_ratio_reports_partial_status(self) -> None:
@@ -119,8 +120,9 @@ class TestSimulatedBroker:
             prices={"AAA": 10.0},
             partial_fill_ratio={"AAA": 0.5},
         )
-        status = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
-        assert status is OrderStatus.PARTIALLY_FILLED
+        snapshot = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
+        assert snapshot.status is OrderStatus.PARTIALLY_FILLED
+        assert snapshot.filled_quantity == pytest.approx(5.0)
         assert broker.get_positions()[0].quantity == pytest.approx(5.0)
 
     def test_rejected_symbol_never_fills(self) -> None:
@@ -130,13 +132,16 @@ class TestSimulatedBroker:
             prices={"AAA": 10.0},
             reject_symbols={"AAA"},
         )
-        status = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
-        assert status is OrderStatus.REJECTED
+        snapshot = broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
+        assert snapshot.status is OrderStatus.REJECTED
+        assert snapshot.filled_quantity == 0.0
         assert broker.get_positions() == []
 
     def test_unknown_order_status(self) -> None:
         broker = SimulatedBroker([], equity=1_000.0, prices={"AAA": 10.0})
-        assert broker.get_order_status("missing") is OrderStatus.UNKNOWN
+        snapshot = broker.get_order_status("missing")
+        assert snapshot.status is OrderStatus.UNKNOWN
+        assert snapshot.filled_quantity == 0.0
 
     def test_closed_market_rejects_submission(self) -> None:
         broker = SimulatedBroker([], equity=1_000.0, prices={"AAA": 10.0}, market_open=False)

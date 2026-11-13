@@ -11,7 +11,7 @@ from moto import mock_aws
 from common.config import StrategyConfig, UniverseConfig
 from common.models import DataSource, RunMetadata
 from common.storage import S3Storage
-from optimizer.core.repository import SilverReturnsRepository
+from optimizer.core.repository import BronzePricesRepository, SilverReturnsRepository
 from optimizer.core.service import OptimizerService
 
 SYMBOLS = ["SPY", "QQQ", "IWM", "EFA", "TLT", "GLD"]
@@ -103,6 +103,28 @@ def _strategy() -> StrategyConfig:
     )
 
 
+def _write_bronze_prices(
+    storage: S3Storage,
+    run_date: date,
+    symbols: list[str],
+    price: float = 100.0,
+) -> None:
+    from ingest.core.keys import bronze_object_key
+
+    for symbol in symbols:
+        storage.write_json(
+            "bronze",
+            bronze_object_key(run_date, DataSource.ALPACA, symbol),
+            {
+                "metadata": {},
+                "bars": [
+                    {"close": price, "symbol": symbol},
+                    {"close": price + 1.0, "symbol": symbol},
+                ],
+            },
+        )
+
+
 def _metadata() -> RunMetadata:
     return RunMetadata(
         run_id="run-42",
@@ -116,11 +138,12 @@ def _metadata() -> RunMetadata:
 @mock_aws
 def test_optimizer_reads_silver_and_writes_gold() -> None:
     client = boto3.client("s3", region_name="us-east-1")
-    for bucket in ("silver", "gold"):
+    for bucket in ("bronze", "silver", "gold"):
         client.create_bucket(Bucket=bucket)
     storage = S3Storage(client)
     dates, values = _history()
     _write_partitions(storage, dates, values)
+    _write_bronze_prices(storage, date(2024, 5, 6), SYMBOLS)
 
     service = OptimizerService(
         repository=SilverReturnsRepository(storage, "silver"),
@@ -129,6 +152,7 @@ def test_optimizer_reads_silver_and_writes_gold() -> None:
         universe=UniverseConfig(tickers=SYMBOLS, max_weight=0.20),
         strategy=_strategy(),
         clock=_FixedClock(datetime(2024, 5, 6, 21, 30, tzinfo=UTC)),
+        prices=BronzePricesRepository(storage, "bronze"),
     )
     proposal = service.run(_metadata())
 
@@ -148,6 +172,9 @@ def test_optimizer_reads_silver_and_writes_gold() -> None:
     proposal_key = "run_date=2024-05-06/proposal.json"
     assert storage.exists("gold", proposal_key)
     assert storage.exists("gold", "latest.json")
+    assert storage.exists("gold", "run_date=2024-05-06/prices.json")
+    prices = storage.read_json("gold", "run_date=2024-05-06/prices.json")["prices"]
+    assert prices == {symbol: 101.0 for symbol in SYMBOLS}
     latest = storage.read_json("gold", "latest.json")
     stored = storage.read_json("gold", proposal_key)
     assert latest == stored
@@ -159,11 +186,12 @@ def test_optimizer_reads_silver_and_writes_gold() -> None:
 @mock_aws
 def test_optimizer_excludes_symbols_without_history() -> None:
     client = boto3.client("s3", region_name="us-east-1")
-    for bucket in ("silver", "gold"):
+    for bucket in ("bronze", "silver", "gold"):
         client.create_bucket(Bucket=bucket)
     storage = S3Storage(client)
     dates, values = _history()
     _write_partitions(storage, dates, values[:, :5])
+    _write_bronze_prices(storage, date(2024, 5, 6), SYMBOLS)
 
     symbols = SYMBOLS[:5] + ["VNQ"]
     service = OptimizerService(
@@ -173,6 +201,7 @@ def test_optimizer_excludes_symbols_without_history() -> None:
         universe=UniverseConfig(tickers=symbols, max_weight=0.20),
         strategy=_strategy(),
         clock=_FixedClock(datetime(2024, 5, 6, 21, 30, tzinfo=UTC)),
+        prices=BronzePricesRepository(storage, "bronze"),
     )
     proposal = service.run(_metadata())
 
