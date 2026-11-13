@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -17,10 +16,11 @@ from common.config import (
     UniverseConfig,
     load_universe_config,
 )
-from common.env import load_env_file, require_variable
+from common.env import load_env_file
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
+from common.secrets import SecretsSettings, SsmSecretProvider
 from common.storage import S3Storage
 from ingest.adapters.alpaca import AlpacaMarketDataSource
 from ingest.adapters.yfinance import YFinanceMarketDataSource
@@ -86,9 +86,11 @@ def handler(event: Mapping[str, object], _context: object | None = None) -> dict
 
 
 def _build_dependencies() -> IngestDependencies:
-    api_key = require_variable(os.environ, "ALPACA_API_KEY")
-    secret_key = require_variable(os.environ, "ALPACA_SECRET_KEY")
     runtime = RuntimeSettings.from_environment()
+    secrets = SecretsSettings.from_environment()
+    provider = SsmSecretProvider(region_name=runtime.aws_region)
+    api_key = provider.get_secret(secrets.api_key_parameter)
+    secret_key = provider.get_secret(secrets.secret_key_parameter)
     storage_settings = StorageSettings.from_environment()
     universe = load_universe_config(runtime.config_dir / "universe.yaml")
     strategy = StrategyConfig.from_environment()

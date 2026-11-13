@@ -1,0 +1,8 @@
+{
+  "app": "uv run python -m infra.app",
+  "versionReporting": false,
+  "context": {
+    "@aws-cdk/core:defaultCrossStackReferences": "strong",
+    "aws-cdk:enableDiffNoFail": "true"
+  }
+}
