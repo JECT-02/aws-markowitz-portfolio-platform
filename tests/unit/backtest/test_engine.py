@@ -50,6 +50,7 @@ def _strategy(**overrides: object) -> StrategyConfig:
         "validation_lambdas": [0.0, 0.001],
         "validation_alphas": [0.0, 0.5],
         "validation_windows": [30],
+        "validation_folds": 3,
     }
     values.update(overrides)
     return StrategyConfig.model_validate(values)

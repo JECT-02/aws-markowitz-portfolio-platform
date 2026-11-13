@@ -31,6 +31,7 @@ def _strategy_env() -> dict[str, str]:
         "VALIDATION_LAMBDAS": "0,0.001",
         "VALIDATION_ALPHAS": "0,0.25,0.5",
         "VALIDATION_WINDOWS": "126,252,504",
+        "VALIDATION_FOLDS": "3",
     }
 
 
@@ -47,6 +48,7 @@ def test_strategy_config_from_environment() -> None:
     assert config.max_forward_fill_days == 3
     assert config.validation_gammas == [1.0, 2.5, 5.0]
     assert config.validation_windows == [126, 252, 504]
+    assert config.validation_folds == 3
 
 
 def test_strategy_config_requires_every_variable() -> None:

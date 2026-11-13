@@ -98,6 +98,7 @@ def _strategy() -> StrategyConfig:
             "validation_lambdas": [0.001],
             "validation_alphas": [0.5],
             "validation_windows": [60],
+            "validation_folds": 3,
         }
     )
 

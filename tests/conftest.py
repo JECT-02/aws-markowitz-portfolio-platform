@@ -22,6 +22,7 @@ def _strategy_values() -> dict[str, Any]:
         "validation_lambdas": [0.0, 0.001],
         "validation_alphas": [0.0, 0.5],
         "validation_windows": [126, 252],
+        "validation_folds": 3,
     }
 
 

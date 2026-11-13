@@ -34,13 +34,14 @@ class PeriodMetrics:
 
 @dataclass(frozen=True)
 class ParameterCandidate:
-    """One hyperparameter combination evaluated on the validation period."""
+    """One hyperparameter combination evaluated across validation folds."""
 
     gamma: float
     transaction_cost_lambda: float
     alpha: float
     window_days: int
-    validation_metrics: PeriodMetrics
+    validation_sharpe: float
+    fold_metrics: list[PeriodMetrics]
 
 
 @dataclass(frozen=True)
@@ -62,8 +63,13 @@ class TemporalValidation:
         self._strategy = strategy
 
     def run(self, matrix: ReturnsMatrix) -> ValidationResult:
-        """Evaluate the configured grid and return the selected parameters."""
-        train_end, validation_end = _split_indices(matrix, self._strategy.validation_windows)
+        """Evaluate the configured grid with nested temporal folds."""
+        train_end, validation_end = _split_indices(
+            matrix,
+            self._strategy.validation_windows,
+            self._strategy.validation_folds,
+        )
+        folds = _fold_bounds(train_end, validation_end, self._strategy.validation_folds)
         candidates: list[ParameterCandidate] = []
         for gamma, cost_lambda, alpha, window in product(
             self._strategy.validation_gammas,
@@ -79,21 +85,24 @@ class TemporalValidation:
                     "window_days": window,
                 }
             )
-            try:
-                result = BacktestEngine(candidate_strategy, self._universe).run(
-                    _slice(matrix, 0, validation_end),
-                    "optimizer",
+            fold_metrics: list[PeriodMetrics] = []
+            engine = BacktestEngine(candidate_strategy, self._universe)
+            for fold_start, fold_end in folds:
+                try:
+                    result = engine.run(_slice(matrix, 0, fold_end), "optimizer")
+                except DataValidationError:
+                    break
+                metrics = _period_metrics(
+                    result.dates,
+                    result.returns,
+                    matrix.dates[fold_start],
+                    matrix.dates[fold_end],
+                    candidate_strategy.risk_free_rate_annual,
                 )
-            except DataValidationError:
-                continue
-            metrics = _period_metrics(
-                result.dates,
-                result.returns,
-                matrix.dates[train_end],
-                matrix.dates[validation_end],
-                candidate_strategy.risk_free_rate_annual,
-            )
-            if metrics is None:
+                if metrics is None:
+                    break
+                fold_metrics.append(metrics)
+            if len(fold_metrics) < len(folds):
                 continue
             candidates.append(
                 ParameterCandidate(
@@ -101,12 +110,13 @@ class TemporalValidation:
                     transaction_cost_lambda=cost_lambda,
                     alpha=alpha,
                     window_days=window,
-                    validation_metrics=metrics,
+                    validation_sharpe=_mean_sharpe(fold_metrics),
+                    fold_metrics=fold_metrics,
                 )
             )
         if not candidates:
             raise DataValidationError("no parameter combination could be validated")
-        candidates.sort(key=lambda item: item.validation_metrics.sharpe_ratio, reverse=True)
+        candidates.sort(key=lambda item: item.validation_sharpe, reverse=True)
         selected = candidates[0]
         selected_strategy = self._strategy.model_copy(
             update={
@@ -151,16 +161,23 @@ class TemporalValidation:
 
 
 def _sensitivity(candidates: list[ParameterCandidate]) -> dict[int, PeriodMetrics]:
-    """Return the best validation metrics observed for each window length."""
-    best: dict[int, PeriodMetrics] = {}
+    """Return the last-fold validation metrics of the best candidate per window."""
+    best_by_window: dict[int, ParameterCandidate] = {}
     for candidate in candidates:
-        current = best.get(candidate.window_days)
-        if current is None or candidate.validation_metrics.sharpe_ratio > current.sharpe_ratio:
-            best[candidate.window_days] = candidate.validation_metrics
-    return best
+        current = best_by_window.get(candidate.window_days)
+        if current is None or candidate.validation_sharpe > current.validation_sharpe:
+            best_by_window[candidate.window_days] = candidate
+    return {
+        window: candidate.fold_metrics[-1]
+        for window, candidate in best_by_window.items()
+    }
 
 
-def _split_indices(matrix: ReturnsMatrix, windows: list[int]) -> tuple[int, int]:
+def _split_indices(
+    matrix: ReturnsMatrix,
+    windows: list[int],
+    folds: int,
+) -> tuple[int, int]:
     if not windows:
         raise DataValidationError("validation windows must not be empty")
     longest = max(windows)
@@ -169,11 +186,32 @@ def _split_indices(matrix: ReturnsMatrix, windows: list[int]) -> tuple[int, int]
     validation_end = int(observations * VALIDATION_FRACTION)
     if validation_end < longest * 2:
         raise DataValidationError("not enough observations for temporal validation")
-    if validation_end - train_end < MIN_PERIOD_OBSERVATIONS:
-        raise DataValidationError("validation period is too short")
+    if validation_end - train_end < folds * MIN_PERIOD_OBSERVATIONS:
+        raise DataValidationError("validation period is too short for the fold count")
     if observations - validation_end < MIN_PERIOD_OBSERVATIONS:
         raise DataValidationError("test period is too short")
     return train_end, validation_end
+
+
+def _fold_bounds(
+    train_end: int,
+    validation_end: int,
+    folds: int,
+) -> list[tuple[int, int]]:
+    """Return expanding-window fold slices inside the validation period."""
+    span = validation_end - train_end
+    step = span // folds
+    bounds: list[tuple[int, int]] = []
+    for index in range(folds):
+        start = train_end + index * step
+        end = validation_end if index == folds - 1 else train_end + (index + 1) * step
+        bounds.append((start, end))
+    return bounds
+
+
+def _mean_sharpe(fold_metrics: list[PeriodMetrics]) -> float:
+    """Return the mean Sharpe ratio across validation folds."""
+    return float(np.mean([metrics.sharpe_ratio for metrics in fold_metrics]))
 
 
 def _slice(matrix: ReturnsMatrix, start: int, end: int) -> ReturnsMatrix:

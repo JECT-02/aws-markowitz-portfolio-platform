@@ -93,6 +93,7 @@ def _deps(service: _Service, state: _State | None = None) -> OptimizerDependenci
             "validation_lambdas": [0.0],
             "validation_alphas": [0.5],
             "validation_windows": [252],
+            "validation_folds": 3,
         }
     )
     return OptimizerDependencies(
