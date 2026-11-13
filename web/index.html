@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Markowitz Portfolio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Markowitz Portfolio</h1>
+    <button id="login" type="button" hidden>Sign in</button>
+    <button id="logout" type="button" hidden>Sign out</button>
+  </header>
+  <main>
+    <section id="message" hidden></section>
+    <section id="proposal" hidden>
+      <h2>Proposal</h2>
+      <div class="summary" id="proposal-summary"></div>
+      <div id="weights-chart" class="chart"></div>
+      <h3>Portfolio metrics</h3>
+      <div id="metrics"></div>
+    </section>
+    <section id="monitor" hidden>
+      <h2>Monitor</h2>
+      <div class="summary" id="monitor-summary"></div>
+    </section>
+    <section id="backtest" hidden>
+      <h2>Backtest</h2>
+      <div class="summary" id="backtest-summary"></div>
+    </section>
+  </main>
+  <script src="config.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
