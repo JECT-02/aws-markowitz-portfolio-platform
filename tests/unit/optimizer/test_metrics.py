@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -9,11 +11,37 @@ from optimizer.core.metrics import (
     calmar_ratio,
     herfindahl_index,
     max_drawdown,
+    portfolio_log_returns,
     sharpe_ratio,
     sortino_ratio,
     turnover_l1,
     turnover_one_way,
 )
+
+
+def test_portfolio_log_returns_single_asset_is_exact() -> None:
+    asset = np.array([[0.01], [-0.02], [0.03]])
+    portfolio = portfolio_log_returns(asset, np.array([1.0]))
+    assert np.allclose(portfolio, asset[:, 0])
+
+
+def test_portfolio_log_returns_weighted_average_in_simple_space() -> None:
+    asset = np.array([[math.log(1.10), math.log(0.90)]])
+    weights = np.array([0.5, 0.5])
+    portfolio = portfolio_log_returns(asset, weights)
+    expected = math.log(0.5 * 1.10 + 0.5 * 0.90)
+    assert float(portfolio[0]) == pytest.approx(expected)
+
+
+def test_portfolio_log_returns_rejects_shape_mismatch() -> None:
+    with pytest.raises(DataValidationError):
+        portfolio_log_returns(np.zeros((3, 2)), np.array([1.0]))
+
+
+def test_portfolio_log_returns_rejects_collapsed_portfolio() -> None:
+    asset = np.array([[-40.0]])
+    with pytest.raises(DataValidationError):
+        portfolio_log_returns(asset, np.array([1.0]))
 
 
 def test_annualized_return() -> None:
@@ -31,6 +59,15 @@ def test_sharpe_ratio_with_zero_risk_free() -> None:
     returns = np.array([0.01, 0.02, -0.01, 0.005])
     expected = float(returns.mean() / returns.std(ddof=1) * np.sqrt(TRADING_DAYS))
     assert sharpe_ratio(returns, 0.0) == pytest.approx(expected)
+
+
+def test_sharpe_ratio_subtracts_daily_log_risk_free_rate() -> None:
+    returns = np.array([0.01, 0.02, -0.01, 0.005])
+    daily_risk_free = math.log1p(0.04) / TRADING_DAYS
+    expected = float(
+        (returns.mean() - daily_risk_free) / returns.std(ddof=1) * np.sqrt(TRADING_DAYS)
+    )
+    assert sharpe_ratio(returns, 0.04) == pytest.approx(expected)
 
 
 def test_sortino_ratio_uses_downside_deviation() -> None:

@@ -61,6 +61,7 @@ def _proposal(metadata: RunMetadata) -> Proposal:
         metrics={},
         covariance_shrinkage=0.1,
         window_days=252,
+        prices_ref="2024-02-01..2025-02-01",
         excluded={},
         run_date=metadata.run_date,
     )
@@ -119,6 +120,7 @@ def test_proposal_is_persisted_with_decimals(state: DynamoPortfolioState) -> Non
     assert item["w_star"]["M"]["SPY"]["N"] == "0.6"
     assert item["drift_l1"]["N"] == "0.2"
     assert item["rebalance_required"]["BOOL"] is True
+    assert item["prices_ref"]["S"] == "2024-02-01..2025-02-01"
     assert int(item["ttl"]["N"]) == 1738705500
     assert item["run_id"]["S"] == "run-1"
 

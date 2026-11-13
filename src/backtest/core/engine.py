@@ -16,6 +16,7 @@ from optimizer.core.metrics import (
     calmar_ratio,
     herfindahl_index,
     max_drawdown,
+    portfolio_log_returns,
     sharpe_ratio,
     sortino_ratio,
     turnover_l1,
@@ -101,7 +102,7 @@ class BacktestEngine:
                     )
                 )
             day = matrix.values[row]
-            net_return = float(day @ current) - cost
+            net_return = _net_log_return(day, current, cost)
             returns.append(net_return)
             dates.append(matrix.dates[row])
             current = _drift_weights(current, day)
@@ -160,9 +161,13 @@ class BacktestEngine:
 
     def _run_spy(self, matrix: ReturnsMatrix) -> BacktestResult:
         window = self._strategy.window_days
+        rebalance_rows = _monthly_indices(matrix.dates, window)
+        if not rebalance_rows:
+            raise DataValidationError("not enough history for a rebalance")
+        start = rebalance_rows[0]
         weights = spy_weights(matrix.symbols)
-        returns = matrix.values[window:] @ weights
-        dates = matrix.dates[window:]
+        returns = portfolio_log_returns(matrix.values[start:], weights)
+        dates = matrix.dates[start:]
         equity = INITIAL_EQUITY * np.exp(np.cumsum(returns))
         return BacktestResult(
             mode="spy",
@@ -202,6 +207,19 @@ def _drift_weights(weights: np.ndarray, day_returns: np.ndarray) -> np.ndarray:
     if total <= 0.0:
         raise DataValidationError("portfolio value collapsed during backtest")
     return np.asarray(growth / total, dtype=float)
+
+
+def _net_log_return(
+    day_asset_log_returns: np.ndarray,
+    weights: np.ndarray,
+    cost: float,
+) -> float:
+    """Return the day's portfolio log return net of the transaction cost."""
+    gross_simple = float(np.expm1(day_asset_log_returns) @ weights)
+    net_simple = gross_simple - cost
+    if net_simple <= -1.0:
+        raise DataValidationError("portfolio value collapsed during backtest")
+    return float(np.log1p(net_simple))
 
 
 def _metrics(

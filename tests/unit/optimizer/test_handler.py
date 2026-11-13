@@ -42,6 +42,7 @@ class _Service:
             metrics={},
             covariance_shrinkage=0.1,
             window_days=252,
+            prices_ref="2024-02-01..2025-01-31",
             excluded={"QQQ": "no_data"},
             run_date=metadata.run_date,
         )
@@ -93,6 +94,7 @@ def _deps(service: _Service, state: _State | None = None) -> OptimizerDependenci
             "validation_lambdas": [0.0],
             "validation_alphas": [0.5],
             "validation_windows": [252],
+            "validation_folds": 3,
         }
     )
     return OptimizerDependencies(

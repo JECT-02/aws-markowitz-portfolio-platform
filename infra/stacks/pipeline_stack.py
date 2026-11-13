@@ -206,6 +206,7 @@ class PipelineStack(Stack):
                     "run_id.$": "$.run_id",
                     "run_date.$": "$.run_date",
                     "source.$": "$.source",
+                    "accepted.$": "$.accepted",
                 }
             ),
             payload_response_only=True,

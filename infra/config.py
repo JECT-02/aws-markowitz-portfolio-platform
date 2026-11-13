@@ -25,6 +25,7 @@ STRATEGY_ENVIRONMENT = {
     "validation_lambdas": "VALIDATION_LAMBDAS",
     "validation_alphas": "VALIDATION_ALPHAS",
     "validation_windows": "VALIDATION_WINDOWS",
+    "validation_folds": "VALIDATION_FOLDS",
 }
 
 DEFAULT_API_KEY_PARAMETER = "/portfolio-markowitz/dev/alpaca/api-key"

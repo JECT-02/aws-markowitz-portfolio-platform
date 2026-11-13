@@ -1,11 +1,39 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from common.errors import DataValidationError
 
 TRADING_DAYS = 252
 MAX_DRAWDOWN_FLOOR = 1e-12
+WIPED_OUT_FLOOR = -1.0
+
+
+def portfolio_log_returns(
+    asset_log_returns: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    """Aggregate asset log returns into exact portfolio log returns.
+
+    The portfolio simple return is the weighted average of asset simple
+    returns; the log return is then taken so that equity compounds exactly.
+    """
+    matrix = np.asarray(asset_log_returns, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] == 0:
+        raise DataValidationError("asset returns must be a non-empty matrix")
+    vector = _as_weights(weights)
+    if matrix.shape[1] != vector.size:
+        raise DataValidationError("weights must match the number of assets")
+    if not np.isfinite(matrix).all():
+        raise DataValidationError("asset returns contain non-finite values")
+    portfolio_simple = (np.expm1(matrix) @ vector).astype(float)
+    if not np.isfinite(portfolio_simple).all():
+        raise DataValidationError("portfolio returns contain non-finite values")
+    if float(portfolio_simple.min()) <= WIPED_OUT_FLOOR:
+        raise DataValidationError("portfolio value collapsed")
+    return np.asarray(np.log1p(portfolio_simple), dtype=float)
 
 
 def annualized_return(log_returns: np.ndarray) -> float:
@@ -30,7 +58,7 @@ def sharpe_ratio(log_returns: np.ndarray, risk_free_rate_annual: float) -> float
     daily_volatility = float(values.std(ddof=1))
     if daily_volatility <= 0.0:
         raise DataValidationError("volatility must be positive to compute Sharpe")
-    daily_risk_free = (1.0 + risk_free_rate_annual) ** (1.0 / TRADING_DAYS) - 1.0
+    daily_risk_free = math.log1p(risk_free_rate_annual) / TRADING_DAYS
     excess = float(values.mean()) - daily_risk_free
     return float(excess / daily_volatility * np.sqrt(TRADING_DAYS))
 
@@ -38,7 +66,7 @@ def sharpe_ratio(log_returns: np.ndarray, risk_free_rate_annual: float) -> float
 def sortino_ratio(log_returns: np.ndarray, risk_free_rate_annual: float) -> float:
     """Return the annualized Sortino ratio using downside deviation."""
     values = _as_series(log_returns)
-    daily_risk_free = (1.0 + risk_free_rate_annual) ** (1.0 / TRADING_DAYS) - 1.0
+    daily_risk_free = math.log1p(risk_free_rate_annual) / TRADING_DAYS
     excess = values - daily_risk_free
     downside = excess[excess < 0.0]
     if downside.size == 0:

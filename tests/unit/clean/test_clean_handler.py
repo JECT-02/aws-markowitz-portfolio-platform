@@ -5,7 +5,7 @@ import pytest
 
 from clean.handler import CleanDependencies, run_clean
 from common.config import StrategyConfig, UniverseConfig
-from common.errors import ConfigurationError
+from common.errors import ConfigurationError, DataValidationError
 from common.models import CleanResult, DataSource, RunMetadata
 
 
@@ -84,3 +84,36 @@ def test_invalid_source_is_rejected(make_strategy_config: Callable[..., Strategy
     service = _RecordingService(_result())
     with pytest.raises(ConfigurationError):
         run_clean({"source": "nasdaq"}, _deps(service, make_strategy_config()))
+
+
+def test_accepted_symbols_restrict_cleaning(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
+    service = _RecordingService(_result())
+    deps = CleanDependencies(
+        service=service,
+        clock=_FixedClock(datetime(2024, 1, 2, 22, 0, tzinfo=UTC)),
+        universe=UniverseConfig(tickers=["SPY", "QQQ"], max_weight=0.20),
+        strategy=make_strategy_config(),
+        code_version="abc",
+    )
+    accepted = {"SPY": "year=2024/month=01/day=02/source=alpaca/symbol=SPY/bars.json"}
+    run_clean({"accepted": accepted}, deps)
+    _, symbols, _ = service.calls[0]
+    assert symbols == ["SPY"]
+
+
+def test_empty_accepted_symbols_are_rejected(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
+    service = _RecordingService(_result())
+    with pytest.raises(DataValidationError):
+        run_clean({"accepted": {}}, _deps(service, make_strategy_config()))
+
+
+def test_non_mapping_accepted_is_rejected(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
+    service = _RecordingService(_result())
+    with pytest.raises(ConfigurationError):
+        run_clean({"accepted": ["SPY"]}, _deps(service, make_strategy_config()))

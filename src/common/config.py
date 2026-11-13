@@ -30,6 +30,7 @@ _STRATEGY_ENV = {
     "validation_lambdas": "VALIDATION_LAMBDAS",
     "validation_alphas": "VALIDATION_ALPHAS",
     "validation_windows": "VALIDATION_WINDOWS",
+    "validation_folds": "VALIDATION_FOLDS",
 }
 
 
@@ -89,6 +90,7 @@ class StrategyConfig(BaseModel):
     validation_lambdas: list[float] = Field(min_length=1)
     validation_alphas: list[float] = Field(min_length=1)
     validation_windows: list[int] = Field(min_length=1)
+    validation_folds: int = Field(ge=2)
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> StrategyConfig:
@@ -135,6 +137,7 @@ class StrategyConfig(BaseModel):
                     "validation_windows": _parse_int_list(
                         raw["validation_windows"], "validation_windows"
                     ),
+                    "validation_folds": _parse_integer(raw["validation_folds"], "validation_folds"),
                 }
             )
         except ValidationError as exc:

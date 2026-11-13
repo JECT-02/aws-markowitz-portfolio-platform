@@ -58,6 +58,7 @@ def _strategy() -> StrategyConfig:
             "validation_lambdas": [0.0, 0.001],
             "validation_alphas": [0.0, 0.5],
             "validation_windows": [20, 30],
+            "validation_folds": 3,
         }
     )
 
@@ -73,9 +74,10 @@ def test_validation_selects_best_candidate_and_reports_test_metrics() -> None:
     result = _validation().run(_matrix())
     assert len(result.candidates) == 16
     assert result.selected is result.candidates[0]
-    assert result.selected.validation_metrics.sharpe_ratio == max(
-        candidate.validation_metrics.sharpe_ratio for candidate in result.candidates
+    assert result.selected.validation_sharpe == max(
+        candidate.validation_sharpe for candidate in result.candidates
     )
+    assert len(result.selected.fold_metrics) == 3
     assert set(result.out_of_sample_metrics) == {
         "optimizer",
         "equal_weight",
@@ -93,12 +95,11 @@ def test_validation_selects_best_candidate_and_reports_test_metrics() -> None:
         assert np.isfinite(metrics.sharpe_ratio)
     assert set(result.sensitivity) == {20, 30}
     for window, metrics in result.sensitivity.items():
-        expected = max(
-            candidate.validation_metrics.sharpe_ratio
-            for candidate in result.candidates
-            if candidate.window_days == window
+        best = max(
+            (candidate for candidate in result.candidates if candidate.window_days == window),
+            key=lambda candidate: candidate.validation_sharpe,
         )
-        assert metrics.sharpe_ratio == expected
+        assert metrics == best.fold_metrics[-1]
 
 
 def test_validation_requires_enough_history() -> None:
@@ -116,17 +117,27 @@ def test_validation_rejects_empty_windows() -> None:
         validation.run(_matrix())
 
 
+def test_validation_rejects_too_many_folds() -> None:
+    strategy = _strategy().model_copy(update={"validation_folds": 20})
+    validation = TemporalValidation(
+        UniverseConfig(tickers=SYMBOLS, max_weight=0.20),
+        strategy,
+    )
+    with pytest.raises(DataValidationError, match="fold count"):
+        validation.run(_matrix())
+
+
 def test_split_rejects_short_validation_period(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(validation_module, "TRAIN_FRACTION", 0.79)
     monkeypatch.setattr(validation_module, "VALIDATION_FRACTION", 0.80)
     with pytest.raises(DataValidationError, match="validation period"):
-        _split_indices(_matrix(rows=100), [20])
+        _split_indices(_matrix(rows=100), [20], 3)
 
 
 def test_split_rejects_short_test_period(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(validation_module, "VALIDATION_FRACTION", 0.99)
     with pytest.raises(DataValidationError, match="test period"):
-        _split_indices(_matrix(rows=100), [20])
+        _split_indices(_matrix(rows=100), [20], 3)
 
 
 def test_slice_preserves_symbols_and_exclusions() -> None:
@@ -174,7 +185,7 @@ def test_validation_requires_out_of_sample_optimizer_metrics(
 ) -> None:
     original_run = validation_module.BacktestEngine.run
     matrix = _matrix()
-    _, validation_end = _split_indices(matrix, [20, 30])
+    _, validation_end = _split_indices(matrix, [20, 30], 3)
     cutoff = matrix.dates[validation_end]
 
     def truncated_run(

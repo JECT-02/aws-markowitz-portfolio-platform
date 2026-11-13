@@ -38,5 +38,6 @@ class Proposal(BaseModel):
     metrics: dict[str, PortfolioMetrics]
     covariance_shrinkage: float
     window_days: int = Field(ge=2)
+    prices_ref: str
     excluded: dict[str, str]
     run_date: date

@@ -101,6 +101,7 @@ def _service(
             "validation_lambdas": [0.0, 0.001],
             "validation_alphas": [0.0, 0.5],
             "validation_windows": [126, 252],
+            "validation_folds": 3,
         }
     )
     service = OptimizerService(
@@ -129,6 +130,7 @@ def test_service_writes_proposal_and_latest() -> None:
     proposal = service.run(_metadata())
     assert repository.calls == [(SYMBOLS, strategy.window_days)]
     assert proposal.proposal_id == "2025-01-02-run-1"
+    assert proposal.prices_ref == "2024-09-01..2024-09-01"
     assert proposal.status in {"PENDING", "NO_REBALANCE"}
     assert sum(proposal.weights.values()) == pytest.approx(1.0, abs=1e-6)
     assert set(proposal.metrics) == {"optimizer", "equal_weight", "minimum_variance", "spy"}
@@ -149,6 +151,15 @@ def test_service_uses_provided_actual_weights() -> None:
     proposal = service.run(_metadata(), actual)
     assert proposal.actual_weights == pytest.approx(actual)
     assert proposal.rebalance_required == (proposal.drift_l1 > 0.10)
+
+
+def test_second_run_with_new_id_keeps_the_first_proposal() -> None:
+    service, _, storage, _ = _service()
+    service.run(_metadata())
+    second = service.run(_metadata().model_copy(update={"run_id": "run-2"}))
+    stored = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert stored["proposal_id"] == "2025-01-02-run-1"
+    assert second.proposal_id == "2025-01-02-run-2"
 
 
 def test_service_requires_five_assets() -> None:

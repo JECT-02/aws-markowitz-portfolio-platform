@@ -50,6 +50,7 @@ def _strategy(**overrides: object) -> StrategyConfig:
         "validation_lambdas": [0.0, 0.001],
         "validation_alphas": [0.0, 0.5],
         "validation_windows": [30],
+        "validation_folds": 3,
     }
     values.update(overrides)
     return StrategyConfig.model_validate(values)
@@ -71,6 +72,16 @@ def test_all_modes_produce_finite_results(mode: str) -> None:
     assert bool(np.isfinite(result.equity).all())
     assert result.equity[-1] > 0.0
     assert result.final_weights.sum() == pytest.approx(1.0, abs=1e-6)
+
+
+def test_all_modes_share_the_same_start_date() -> None:
+    engine = _engine()
+    matrix = _matrix()
+    starts = {
+        mode: engine.run(matrix, mode).dates[0]
+        for mode in ("optimizer", "equal_weight", "minimum_variance", "spy")
+    }
+    assert len(set(starts.values())) == 1
 
 
 def test_optimizer_rebalances_monthly_and_respects_limits() -> None:
