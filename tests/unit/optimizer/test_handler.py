@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 import pytest
 
 from common.config import StrategyConfig, UniverseConfig
-from common.errors import ConfigurationError
+from common.errors import ConfigurationError, InfeasibleError, SolverError
 from common.models import DataSource, RunMetadata
 from optimizer.core.models import Proposal
 from optimizer.handler import OptimizerDependencies, run_optimizer
@@ -47,7 +47,38 @@ class _Service:
         )
 
 
-def _deps(service: _Service) -> OptimizerDependencies:
+class _FailingService(_Service):
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    def run(
+        self,
+        metadata: RunMetadata,
+        actual_weights: dict[str, float] | None = None,
+    ) -> Proposal:
+        raise self.error
+
+
+class _State:
+    def __init__(self, weights: dict[str, float] | None = None) -> None:
+        self.weights = weights
+        self.reads = 0
+        self.proposals: list[Proposal] = []
+        self.failures: list[tuple[str, RunMetadata, str]] = []
+
+    def read_actual_weights(self) -> dict[str, float] | None:
+        self.reads += 1
+        return self.weights
+
+    def write_proposal(self, proposal: Proposal) -> None:
+        self.proposals.append(proposal)
+
+    def write_failure(self, proposal_id: str, metadata: RunMetadata, reason: str) -> None:
+        self.failures.append((proposal_id, metadata, reason))
+
+
+def _deps(service: _Service, state: _State | None = None) -> OptimizerDependencies:
     strategy = StrategyConfig.model_validate(
         {
             "risk_aversion": 2.0,
@@ -70,6 +101,7 @@ def _deps(service: _Service) -> OptimizerDependencies:
         universe=UniverseConfig(tickers=["SPY", "QQQ"], max_weight=0.6),
         strategy=strategy,
         code_version="test",
+        state=state,
     )
 
 
@@ -115,3 +147,53 @@ def test_non_numeric_actual_weights_are_rejected() -> None:
 def test_unsupported_source_is_rejected() -> None:
     with pytest.raises(ConfigurationError):
         run_optimizer({"source": "nasdaq"}, _deps(_Service()))
+
+
+def test_state_weights_are_used_when_event_has_none() -> None:
+    state = _State({"SPY": 0.6, "QQQ": 0.4})
+    service = _Service()
+    run_optimizer({"run_date": "2025-02-03"}, _deps(service, state))
+    assert state.reads == 1
+    _, actual = service.calls[0]
+    assert actual == {"SPY": 0.6, "QQQ": 0.4}
+
+
+def test_event_weights_take_precedence_over_state() -> None:
+    state = _State({"SPY": 1.0})
+    service = _Service()
+    run_optimizer(
+        {"run_date": "2025-02-03", "actual_weights": {"SPY": 0.6, "QQQ": 0.4}},
+        _deps(service, state),
+    )
+    assert state.reads == 0
+    _, actual = service.calls[0]
+    assert actual == {"SPY": 0.6, "QQQ": 0.4}
+
+
+def test_successful_proposal_is_persisted() -> None:
+    state = _State()
+    response = run_optimizer({"run_date": "2025-02-03"}, _deps(_Service(), state))
+    assert len(state.proposals) == 1
+    assert state.proposals[0].proposal_id == response["proposal_id"]
+    assert state.failures == []
+
+
+def test_solver_failure_persists_a_failed_proposal() -> None:
+    state = _State()
+    with pytest.raises(SolverError):
+        run_optimizer({"run_date": "2025-02-03"}, _deps(_FailingService(SolverError("bad")), state))
+    proposal_id, metadata, reason = state.failures[0]
+    assert proposal_id == f"2025-02-03-{metadata.run_id}"
+    assert metadata.run_date == date(2025, 2, 3)
+    assert reason == "bad"
+    assert state.proposals == []
+
+
+def test_infeasible_failure_persists_a_failed_proposal() -> None:
+    state = _State()
+    with pytest.raises(InfeasibleError):
+        run_optimizer(
+            {"run_date": "2025-02-03"},
+            _deps(_FailingService(InfeasibleError("few assets")), state),
+        )
+    assert state.failures[0][2] == "few assets"
