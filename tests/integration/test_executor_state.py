@@ -5,6 +5,7 @@ from typing import Any
 
 import boto3
 import pytest
+from botocore.exceptions import BotoCoreError, ClientError
 from moto import mock_aws
 
 from common.errors import StorageError
@@ -209,3 +210,169 @@ class TestIdempotency:
     def test_result_write_without_claim_is_rejected(self, state_table) -> None:
         with pytest.raises(StorageError, match="never claimed"):
             _state().write_idempotency_result("key-1", _result(), NOW)
+
+
+class _FailingClient:
+    """DynamoDB client stub that raises the configured error once."""
+
+    def __init__(self, error: Exception, method: str) -> None:
+        self._error = error
+        self._method = method
+        self.calls: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        def _call(*args: Any, **kwargs: Any) -> Any:
+            self.calls.append(name)
+            if name == self._method:
+                raise self._error
+            raise AssertionError(f"unexpected call {name}")
+
+        return _call
+
+
+def _client_error(code: str, message: str) -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": message}}, "operation")
+
+
+class TestStorageFailures:
+    def test_transition_with_generic_client_error(self) -> None:
+        client = _FailingClient(_client_error("InternalServerError", "boom"), "update_item")
+        with pytest.raises(StorageError, match="transition"):
+            DynamoExecutionState(TABLE_NAME, client=client).transition_to_executing("p")
+
+    def test_transition_with_botocore_error(self) -> None:
+        client = _FailingClient(BotoCoreError(), "update_item")
+        with pytest.raises(StorageError, match="transition"):
+            DynamoExecutionState(TABLE_NAME, client=client).transition_to_executing("p")
+
+    def test_result_write_failure(self) -> None:
+        client = _FailingClient(_client_error("InternalServerError", "boom"), "update_item")
+        with pytest.raises(StorageError, match="execution result"):
+            DynamoExecutionState(TABLE_NAME, client=client).write_execution_result(
+                "p", _result(), NOW
+            )
+
+    def test_reconciled_state_write_failure(self) -> None:
+        client = _FailingClient(_client_error("InternalServerError", "boom"), "put_item")
+        with pytest.raises(StorageError, match="reconciled state"):
+            DynamoExecutionState(TABLE_NAME, client=client).write_reconciled_state(
+                {"SPY": 1.0}, 100.0, NOW
+            )
+
+    def test_reconciled_state_rejects_invalid_input(self) -> None:
+        state = _state()
+        with pytest.raises(StorageError, match="must not be empty"):
+            state.write_reconciled_state({}, 100.0, NOW)
+        with pytest.raises(StorageError, match="finite and non-negative"):
+            state.write_reconciled_state({"SPY": -1.0}, 100.0, NOW)
+        with pytest.raises(StorageError, match="sum to one"):
+            state.write_reconciled_state({"SPY": 0.6, "QQQ": 0.5}, 100.0, NOW)
+        with pytest.raises(StorageError, match="account value"):
+            state.write_reconciled_state({"SPY": 1.0}, 0.0, NOW)
+
+    def test_claim_with_generic_client_error(self) -> None:
+        client = _FailingClient(_client_error("InternalServerError", "boom"), "put_item")
+        with pytest.raises(StorageError, match="claim idempotency"):
+            DynamoExecutionState(TABLE_NAME, client=client).claim_idempotency("key-1", "p")
+
+    def test_claim_disappears_between_condition_and_read(self) -> None:
+        class _GhostClient:
+            def put_item(self, **kwargs: Any) -> None:
+                raise _client_error("ConditionalCheckFailedException", "exists")
+
+            def get_item(self, **kwargs: Any) -> dict[str, Any]:
+                return {}
+
+        with pytest.raises(StorageError, match="disappeared"):
+            DynamoExecutionState(TABLE_NAME, client=_GhostClient()).claim_idempotency("key-1", "p")
+
+    def test_claim_with_botocore_error(self) -> None:
+        client = _FailingClient(BotoCoreError(), "put_item")
+        with pytest.raises(StorageError, match="claim idempotency"):
+            DynamoExecutionState(TABLE_NAME, client=client).claim_idempotency("k", "p")
+
+    def test_idempotency_result_never_claimed(self) -> None:
+        client = _FailingClient(
+            _client_error("ConditionalCheckFailedException", "absent"), "update_item"
+        )
+        with pytest.raises(StorageError, match="never claimed"):
+            DynamoExecutionState(TABLE_NAME, client=client).write_idempotency_result(
+                "key-1", _result(), NOW
+            )
+
+    def test_idempotency_result_generic_failure(self) -> None:
+        client = _FailingClient(_client_error("InternalServerError", "boom"), "update_item")
+        with pytest.raises(StorageError, match="idempotency result"):
+            DynamoExecutionState(TABLE_NAME, client=client).write_idempotency_result(
+                "key-1", _result(), NOW
+            )
+
+    def test_idempotency_result_botocore_error(self) -> None:
+        client = _FailingClient(BotoCoreError(), "update_item")
+        with pytest.raises(StorageError, match="idempotency result"):
+            DynamoExecutionState(TABLE_NAME, client=client).write_idempotency_result(
+                "key-1", _result(), NOW
+            )
+
+    def test_read_failure(self) -> None:
+        client = _FailingClient(_client_error("InternalServerError", "boom"), "get_item")
+        with pytest.raises(StorageError, match="read execution state"):
+            DynamoExecutionState(TABLE_NAME, client=client).read_proposal("p")
+
+
+class TestMalformedItems:
+    def test_proposal_missing_attributes(self, state_table) -> None:
+        state_table.put_item(
+            TableName=TABLE_NAME,
+            Item={"pk": {"S": "PROPOSAL"}, "sk": {"S": "p-broken"}},
+        )
+        with pytest.raises(StorageError, match="missing required"):
+            _state().read_proposal("p-broken")
+
+    def test_proposal_weights_not_a_map(self, state_table) -> None:
+        created = NOW - timedelta(minutes=30)
+        state_table.put_item(
+            TableName=TABLE_NAME,
+            Item={
+                "pk": {"S": "PROPOSAL"},
+                "sk": {"S": "p-broken"},
+                "status": {"S": "PENDING"},
+                "w_star": {"S": "not-a-map"},
+                "created_at": {"S": created.isoformat()},
+                "expires_at": {"S": (created + timedelta(hours=24)).isoformat()},
+                "run_date": {"S": "2026-11-13"},
+            },
+        )
+        with pytest.raises(StorageError, match="numeric map"):
+            _state().read_proposal("p-broken")
+
+    def test_proposal_weights_not_numeric(self, state_table) -> None:
+        created = NOW - timedelta(minutes=30)
+        state_table.put_item(
+            TableName=TABLE_NAME,
+            Item={
+                "pk": {"S": "PROPOSAL"},
+                "sk": {"S": "p-broken"},
+                "status": {"S": "PENDING"},
+                "w_star": {"M": {"SPY": {"S": "0.5"}}},
+                "created_at": {"S": created.isoformat()},
+                "expires_at": {"S": (created + timedelta(hours=24)).isoformat()},
+                "run_date": {"S": "2026-11-13"},
+            },
+        )
+        with pytest.raises(StorageError, match="numeric"):
+            _state().read_proposal("p-broken")
+
+    def test_claim_with_invalid_stored_result(self, state_table) -> None:
+        state_table.put_item(
+            TableName=TABLE_NAME,
+            Item={
+                "pk": {"S": "IDEMPOTENCY"},
+                "sk": {"S": "key-1"},
+                "proposal_id": {"S": "p"},
+                "status": {"S": "FAILED"},
+                "result": {"S": "not-json"},
+            },
+        )
+        with pytest.raises(StorageError, match="invalid"):
+            _state().claim_idempotency("key-1", "p")

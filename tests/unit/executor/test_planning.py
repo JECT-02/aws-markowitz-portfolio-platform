@@ -156,3 +156,75 @@ class TestSimulatedBroker:
         broker = SimulatedBroker([], equity=1_000.0, prices={"AAA": 10.0})
         broker.submit_order("o1", "AAA", OrderSide.BUY, 10.0)
         assert broker.get_account_equity() == pytest.approx(1_000.0)
+
+
+class TestPlanOrdersGuards:
+    def test_rejects_non_positive_equity(self) -> None:
+        with pytest.raises(ValueError, match="equity"):
+            plan_orders(
+                "p1", {"AAA": 1.0}, [], equity=0.0, prices={"AAA": 10.0}, min_order_notional=10.0
+            )
+
+    def test_rejects_non_positive_min_order_notional(self) -> None:
+        with pytest.raises(ValueError, match="min_order_notional"):
+            plan_orders(
+                "p1", {"AAA": 1.0}, [], equity=100.0, prices={"AAA": 10.0}, min_order_notional=0.0
+            )
+
+    def test_rejects_invalid_price_for_a_symbol(self) -> None:
+        with pytest.raises(ValueError, match="AAA"):
+            plan_orders(
+                "p1",
+                {"AAA": 1.0},
+                [],
+                equity=100.0,
+                prices={"AAA": 0.0},
+                min_order_notional=10.0,
+            )
+
+
+class TestSimulatedBrokerGuards:
+    def test_rejects_non_positive_equity(self) -> None:
+        with pytest.raises(ValueError, match="equity"):
+            SimulatedBroker([], equity=0.0, prices={"AAA": 10.0})
+
+    def test_rejects_non_positive_prices(self) -> None:
+        with pytest.raises(ValueError, match="prices"):
+            SimulatedBroker([], equity=100.0, prices={"AAA": 0.0})
+
+    def test_set_market_open_toggles_submission(self) -> None:
+        broker = SimulatedBroker([], equity=100.0, prices={"AAA": 10.0})
+        broker.set_market_open(False)
+        assert broker.is_market_open() is False
+        with pytest.raises(RuntimeError, match="closed"):
+            broker.submit_order("o1", "AAA", OrderSide.BUY, 5.0)
+        broker.set_market_open(True)
+        assert broker.is_market_open() is True
+
+    def test_get_price_for_unknown_symbol_raises(self) -> None:
+        broker = SimulatedBroker([], equity=100.0, prices={"AAA": 10.0})
+        with pytest.raises(KeyError, match="BBB"):
+            broker.get_price("bbb")
+
+    def test_set_price_validates_and_normalizes(self) -> None:
+        broker = SimulatedBroker([], equity=100.0, prices={"AAA": 10.0})
+        with pytest.raises(ValueError, match="positive"):
+            broker.set_price("AAA", 0.0)
+        broker.set_price("aaa", 12.0)
+        assert broker.get_price("AAA") == pytest.approx(12.0)
+
+    def test_unknown_orders_report_unknown_without_filling(self) -> None:
+        broker = SimulatedBroker(
+            [],
+            equity=100.0,
+            prices={"AAA": 10.0},
+            unknown_orders={"stale"},
+        )
+        snapshot = broker.submit_order("stale", "AAA", OrderSide.BUY, 5.0)
+        assert snapshot.status is OrderStatus.UNKNOWN
+        assert snapshot.filled_quantity == 0.0
+        assert broker.submitted == []
+
+    def test_now_reports_the_wall_clock(self) -> None:
+        broker = SimulatedBroker([], equity=100.0, prices={"AAA": 10.0})
+        assert broker.now().tzinfo is not None

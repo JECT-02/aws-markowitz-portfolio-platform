@@ -249,12 +249,13 @@ def _is_conditional_failure(exc: ClientError) -> bool:
 def _parse_proposal(proposal_id: str, item: dict[str, Any]) -> ProposalRecord:
     try:
         status = item["status"]["S"]
-        weights_raw = item["w_star"]["M"]
         created_at = datetime.fromisoformat(item["created_at"]["S"])
         expires_at = datetime.fromisoformat(item["expires_at"]["S"])
         run_date_raw = item["run_date"]["S"]
     except (KeyError, TypeError, ValueError) as exc:
         raise StorageError("proposal item is missing required attributes") from exc
+    w_star = item.get("w_star")
+    weights_raw = w_star.get("M") if isinstance(w_star, dict) else None
     return ProposalRecord(
         proposal_id=proposal_id,
         status=status,

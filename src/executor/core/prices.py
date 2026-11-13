@@ -36,7 +36,10 @@ class GoldPricesRepository:
             raise StorageError(f"reference prices at {key} are empty or malformed")
         prices: dict[str, float] = {}
         for symbol, value in raw.items():
-            price = float(value)
+            try:
+                price = float(value)
+            except (TypeError, ValueError) as exc:
+                raise StorageError(f"reference price for {symbol} must be a number") from exc
             if not math.isfinite(price) or price <= 0.0:
                 raise StorageError(f"reference price for {symbol} must be finite and positive")
             prices[str(symbol).upper()] = price
