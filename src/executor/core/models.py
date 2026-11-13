@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-
-from common.models import RunMetadata
 
 
 class OrderSide(StrEnum):
@@ -185,7 +183,7 @@ class ProposalRecord(BaseModel):
     prices: dict[str, float]
     created_at: datetime
     expires_at: datetime
-    metadata: RunMetadata
+    run_date: date
 
     @model_validator(mode="after")
     def _validate_weights(self) -> ProposalRecord:
@@ -211,7 +209,6 @@ class IdempotencyClaim(BaseModel):
     proposal_id: str
     status: str
     result: ExecutionResult | None = None
-    expires_at: datetime | None = None
 
 
 def decimal_string(value: float) -> str:
