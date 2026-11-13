@@ -10,9 +10,11 @@ REQUIREMENTS = [
     ROOT / "src" / "ingest" / "requirements.txt",
     ROOT / "src" / "clean" / "requirements.txt",
     ROOT / "src" / "optimizer" / "requirements.txt",
+    ROOT / "src" / "reader" / "requirements.txt",
 ]
 DOCKERFILES = {
-    name: ROOT / "src" / name / "Dockerfile" for name in ("ingest", "clean", "optimizer")
+    name: ROOT / "src" / name / "Dockerfile"
+    for name in ("ingest", "clean", "optimizer", "reader")
 }
 
 
