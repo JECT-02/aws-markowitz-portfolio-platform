@@ -84,7 +84,6 @@ class DataStack(Stack):
         self.ingest_dlq = self._dead_letter_queue("IngestDlq")
         self.clean_dlq = self._dead_letter_queue("CleanDlq")
         self.optimizer_dlq = self._dead_letter_queue("OptimizerDlq")
-        self.state_machine_dlq = self._dead_letter_queue("StateMachineDlq")
         self.schedule_dlq = self._dead_letter_queue("ScheduleDlq")
 
         CfnOutput(self, "BronzeBucketName", value=self.bronze_bucket.bucket_name)

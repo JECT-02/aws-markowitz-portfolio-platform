@@ -90,7 +90,7 @@ def test_state_table_is_provisioned_without_pitr() -> None:
 
 def test_dead_letter_queues_are_encrypted() -> None:
     template = _template()
-    template.resource_count_is("AWS::SQS::Queue", 5)
+    template.resource_count_is("AWS::SQS::Queue", 4)
     template.has_resource_properties(
         "AWS::SQS::Queue",
         {
