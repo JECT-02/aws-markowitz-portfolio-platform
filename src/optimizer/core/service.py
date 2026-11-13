@@ -19,6 +19,7 @@ from optimizer.core.metrics import (
     calmar_ratio,
     herfindahl_index,
     max_drawdown,
+    portfolio_log_returns,
     sharpe_ratio,
     sortino_ratio,
     turnover_l1,
@@ -162,7 +163,7 @@ def _metrics(
     weights: np.ndarray,
     risk_free_rate_annual: float,
 ) -> PortfolioMetrics:
-    portfolio_returns = matrix.values @ weights
+    portfolio_returns = portfolio_log_returns(matrix.values, weights)
     return PortfolioMetrics(
         annualized_return=annualized_return(portfolio_returns),
         annualized_volatility=annualized_volatility(portfolio_returns),
