@@ -167,10 +167,7 @@ def _sensitivity(candidates: list[ParameterCandidate]) -> dict[int, PeriodMetric
         current = best_by_window.get(candidate.window_days)
         if current is None or candidate.validation_sharpe > current.validation_sharpe:
             best_by_window[candidate.window_days] = candidate
-    return {
-        window: candidate.fold_metrics[-1]
-        for window, candidate in best_by_window.items()
-    }
+    return {window: candidate.fold_metrics[-1] for window, candidate in best_by_window.items()}
 
 
 def _split_indices(

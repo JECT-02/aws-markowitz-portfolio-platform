@@ -137,9 +137,7 @@ class StrategyConfig(BaseModel):
                     "validation_windows": _parse_int_list(
                         raw["validation_windows"], "validation_windows"
                     ),
-                    "validation_folds": _parse_integer(
-                        raw["validation_folds"], "validation_folds"
-                    ),
+                    "validation_folds": _parse_integer(raw["validation_folds"], "validation_folds"),
                 }
             )
         except ValidationError as exc:
