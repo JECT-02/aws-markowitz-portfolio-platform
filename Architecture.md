@@ -622,9 +622,8 @@ portfolio-markowitz-aws/
 ├── web/                         # SPA (Plotly.js)
 ├── notebooks/                   # investigación y validación
 ├── tests/
-├── docs/
-│   └── runbook.md
-└── .github/workflows/           # CI/CD con OIDC
+└── docs/
+    └── runbook.md
 ```
 
 ---
