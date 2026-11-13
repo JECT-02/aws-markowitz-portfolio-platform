@@ -31,3 +31,11 @@ class InfeasibleError(PortfolioError):
 
 class StorageError(PortfolioError):
     """Raised when a storage operation fails."""
+
+
+class SecretError(PortfolioError):
+    """Raised when a secret cannot be read or is empty."""
+
+
+class IdempotencyConflict(PortfolioError):
+    """Raised when a conditional state write finds an existing item."""
