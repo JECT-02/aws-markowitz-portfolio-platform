@@ -109,12 +109,15 @@ def test_large_transaction_cost_keeps_actual_weights(
 ) -> None:
     estimates = estimate(_returns(n_assets, rows, seed), 0.5)
     actual = np.full(n_assets, 1.0 / n_assets)
+    # 1e4 already pins w to w_actual (the L1 term dominates the ~1e-3 mean by
+    # ~1e7); larger magnitudes make the QP ill-conditioned and CLARABEL fails
+    # numerically on degenerate Ledoit-Wolf covariances.
     result = MarkowitzOptimizer(n_assets, MAX_WEIGHT).solve(
         estimates.covariance,
         estimates.mean,
         actual,
         gamma=2.0,
-        transaction_cost_lambda=1e7,
+        transaction_cost_lambda=1e4,
     )
     assert np.allclose(result.weights, actual, atol=1e-3)
 

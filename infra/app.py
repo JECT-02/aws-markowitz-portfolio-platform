@@ -9,6 +9,7 @@ from infra.config import PROJECT_NAME, load_deploy_config
 from infra.stacks.api_stack import ApiStack
 from infra.stacks.data_stack import DataStack
 from infra.stacks.pipeline_stack import PipelineStack
+from infra.stacks.web_stack import WebStack
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,11 +34,18 @@ def main() -> None:
         data=data,
         env=environment,
     )
-    ApiStack(
+    api = ApiStack(
         app,
         f"{PROJECT_NAME}-api-{config.env_name}",
         config=config,
         data=data,
+        env=environment,
+    )
+    WebStack(
+        app,
+        f"{PROJECT_NAME}-web-{config.env_name}",
+        config=config,
+        api=api,
         env=environment,
     )
     app.synth()
