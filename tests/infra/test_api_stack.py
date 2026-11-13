@@ -53,6 +53,26 @@ def test_web_client_is_public_and_uses_srp_only() -> None:
         assert properties["PreventUserExistenceErrors"] == "ENABLED"
 
 
+def test_user_pool_domain_uses_a_deterministic_prefix() -> None:
+    template = _template()
+    template.has_resource_properties(
+        "AWS::Cognito::UserPoolDomain",
+        {"Domain": "portfolio-markowitz-test"},
+    )
+
+
+def test_pkce_flow_is_enabled_only_with_a_spa_origin() -> None:
+    template = _template("https://spa.example")
+    client = template.find_resources("AWS::Cognito::UserPoolClient")
+    for resource in client.values():
+        properties = resource["Properties"]
+        assert properties["AllowedOAuthFlows"] == ["code"]
+        assert properties["AllowedOAuthFlowsUserPoolClient"] is True
+        assert properties["CallbackURLs"] == ["https://spa.example"]
+        assert properties["LogoutURLs"] == ["https://spa.example"]
+        assert properties["AllowedOAuthScopes"] == ["openid", "email", "profile"]
+
+
 def test_user_pool_is_retained() -> None:
     template = _template()
     template.has_resource(
