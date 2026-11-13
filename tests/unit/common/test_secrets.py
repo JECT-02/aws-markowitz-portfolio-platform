@@ -16,14 +16,15 @@ class _FakeSsm:
         self.values = dict(values)
         self.calls: list[str] = []
 
-    def get_parameter(self, *, Name: str, WithDecryption: bool) -> dict[str, object]:
-        self.calls.append(Name)
-        if Name not in self.values:
+    def get_parameter(self, **kwargs: object) -> dict[str, object]:
+        name = str(kwargs["Name"])
+        self.calls.append(name)
+        if name not in self.values:
             raise ClientError(
                 {"Error": {"Code": "ParameterNotFound", "Message": "missing"}},
                 "GetParameter",
             )
-        return {"Parameter": {"Name": Name, "Value": self.values[Name]}}
+        return {"Parameter": {"Name": name, "Value": self.values[name]}}
 
 
 def test_provider_reads_and_caches_values() -> None:

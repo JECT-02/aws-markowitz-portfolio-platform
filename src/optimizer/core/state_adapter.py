@@ -46,9 +46,7 @@ class DynamoPortfolioState:
     ) -> None:
         self._table_name = table_name
         self._client: Any = (
-            client
-            if client is not None
-            else boto3.client("dynamodb", region_name=region_name)
+            client if client is not None else boto3.client("dynamodb", region_name=region_name)
         )
 
     def read_actual_weights(self) -> dict[str, float] | None:
