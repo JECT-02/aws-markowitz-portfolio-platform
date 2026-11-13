@@ -100,17 +100,18 @@ def build_dependencies() -> OptimizerDependencies:
     universe = load_universe_config(runtime.config_dir / "universe.yaml")
     strategy = StrategyConfig.from_environment()
     storage = S3Storage(region_name=runtime.aws_region)
+    clock = SystemClock()
     service = OptimizerService(
         repository=SilverReturnsRepository(storage, storage_settings.silver_bucket),
         storage=storage,
         gold_bucket=storage_settings.gold_bucket,
         universe=universe,
         strategy=strategy,
-        clock=SystemClock(),
+        clock=clock,
     )
     return OptimizerDependencies(
         service=service,
-        clock=SystemClock(),
+        clock=clock,
         universe=universe,
         strategy=strategy,
         code_version=runtime.code_version,

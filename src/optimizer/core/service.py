@@ -25,7 +25,7 @@ from optimizer.core.metrics import (
     turnover_l1,
 )
 from optimizer.core.models import PortfolioMetrics, Proposal
-from optimizer.core.problem import INACCURATE_STATUS, MarkowitzOptimizer
+from optimizer.core.problem import INACCURATE_STATUS, INACCURATE_TOLERANCE, MarkowitzOptimizer
 from optimizer.core.repository import ReturnsMatrix, ReturnsRepository
 
 logger = get_logger(__name__)
@@ -103,7 +103,7 @@ class OptimizerService:
                 extra={
                     "run_id": metadata.run_id,
                     "assets": matrix.n_assets,
-                    "tolerance": 1e-4,
+                    "tolerance": INACCURATE_TOLERANCE,
                 },
             )
         benchmarks = BenchmarkAllocations(
@@ -155,10 +155,11 @@ class OptimizerService:
         return proposal
 
     def _write(self, proposal: Proposal) -> None:
+        # First proposal per run date wins, matching the conditional DynamoDB write.
         payload = proposal.model_dump(mode="json")
         key = f"run_date={proposal.run_date.isoformat()}/proposal.json"
-        self._storage.write_json(self._gold_bucket, key, payload)
-        self._storage.write_json(self._gold_bucket, "latest.json", payload)
+        self._storage.write_json_if_absent(self._gold_bucket, key, payload)
+        self._storage.write_json_if_absent(self._gold_bucket, "latest.json", payload)
 
 
 def _metrics(

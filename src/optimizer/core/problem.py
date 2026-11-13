@@ -75,7 +75,7 @@ class MarkowitzOptimizer:
         self._gamma.value = gamma
         self._lambda.value = transaction_cost_lambda
         try:
-            self._problem.solve(solver=self._solver, verbose=False)
+            self._problem.solve(solver=self._solver, verbose=False, ignore_dpp=True)
         except cp.SolverError as exc:
             raise SolverError("solver failed") from exc
         status = str(self._problem.status)

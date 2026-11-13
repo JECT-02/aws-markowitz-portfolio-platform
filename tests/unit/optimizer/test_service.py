@@ -153,6 +153,15 @@ def test_service_uses_provided_actual_weights() -> None:
     assert proposal.rebalance_required == (proposal.drift_l1 > 0.10)
 
 
+def test_second_run_with_new_id_keeps_the_first_proposal() -> None:
+    service, _, storage, _ = _service()
+    service.run(_metadata())
+    second = service.run(_metadata().model_copy(update={"run_id": "run-2"}))
+    stored = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert stored["proposal_id"] == "2025-01-02-run-1"
+    assert second.proposal_id == "2025-01-02-run-2"
+
+
 def test_service_requires_five_assets() -> None:
     symbols = ["SPY", "QQQ", "IWM", "EFA"]
     service, _, _, _ = _service(_matrix(symbols), symbols)
