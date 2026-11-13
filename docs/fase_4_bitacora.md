@@ -165,3 +165,67 @@ Todo el trabajo es teórico: no se ejecutó nada contra AWS ni contra Alpaca.
 - Cobertura ≥ 80 %.
 - No se ejecutó: `bandit`/`pip-audit` (pendiente de `make check` final),
   `cdk synth`/`diff`, ni ninguna llamada real de red.
+
+
+## Rama `feat/executor-core`: fase 5A - flujo de ejecución con idempotencia (2026-11-13)
+
+Tres commits atomicos sobre `main` (`e81f11c`):
+
+1. **Errores y configuracion** (`7df97ef`): `BrokerError`, `ProposalExpired`,
+   `ProposalNotPending`, `MarketClosed`, `PriceDriftExceeded` en
+   `common/errors`; `ExecutorConfig` (env `EXECUTOR_MIN_ORDER_NOTIONAL`,
+   `EXECUTOR_MAX_PRICE_DRIFT_PCT`, `EXECUTOR_EXECUTION_TIMEOUT_SECONDS`,
+   en `.env` vacias) con helpers de parsing refactorizados
+   (`_parse_number/_parse_integer(value, env_name)`).
+2. **Nucleo puro** (`aa38fcb`): `models.py` (OrderSnapshot, PlannedOrder,
+   FilledOrder, Reconciliation, ExecutionResult, ProposalRecord,
+   IdempotencyClaim), `broker.py` (protocol BrokerPort: submit_order y
+   get_order_status devuelven snapshots), `simulated.py` (SimulatedBroker
+   determinista con partial_fill_ratio/reject_symbols y
+   client_order_id deduplicado), `planning.py` (ventas antes que compras,
+   polvo >= min_order_notional, client_order_id determinista
+   {proposal_id}-{SYMBOL}-{side}) y `drift.py`.
+3. **Estado e idempotencia** (`8aac8fe`): `DynamoExecutionState` con
+   escrituras condicionales (`attribute_not_exists` para claims,
+   `status = PENDING` para la transicion a EXECUTING, `attribute_exists(pk)`
+   para resultados) y nombres de expresion para keywords reservadas.
+
+### Decisiones tecnicas
+
+- **prices.json en Gold**: el optimizador ahora escribe
+  `run_date=X/prices.json` (closes de referencia de Bronze, via nuevo
+  `PricesRepository` protocol) y valida cobertura de los simbolos del
+  `OptimizerInput`. El executor lee ese artefacto con
+  `GoldPricesRepository` (falta -> NotFoundError, fail-closed) para el
+  chequeo de drift con precios de referencia.
+- **Claim antes que todo**: el claim de idempotencia se hace primero; un
+  claim pre-existente sin resultado => `IdempotencyConflict` (en vuelo, se
+  propaga SIN escribir failure en el claim del dueno). Los umbrales
+  aprobados: $50 min_order_notional, 1% max_price_drift_pct, 60 s timeout
+  de polling con waiter inyectable.
+- **SimulatedBroker solo para tests/local**: `build_dependencies` del
+  handler lanza `ConfigurationError` si no hay broker real; el adaptador
+  Alpaca paper llega en la parte B (`feat/executor-broker`). La ruta
+  `POST /rebalance` no es deployable todavia: el registro de la ruta y el
+  adaptador son parte B.
+- **Claims zombis**: si el proceso muere entre claim y resultado, el TTL
+  (24 h) limpia el claim y un reintento posterior puede ejecutar. La
+  propuesta quedaría EXECUTING; se reconsiderará con la reconciliación de
+  la parte B si hace falta un camino de escape manual.
+
+4. **Handler y servicio** (`54a2bb0`): `RebalanceService` (orden crítica:
+   claim → replay → propuesta → expirada → pending → mercado abierto →
+   drift → transición condicional a EXECUTING → plan → submit con polling
+   hasta deadline → clasificar EXECUTED/PARTIAL/FAILED → reconciliar desde
+   posiciones reales → persistir STATE/CURRENT + resultado) y `run_executor`
+   (ruta `POST /rebalance`, header `idempotency-key` case-insensitive,
+   mapeo de errores: NotFoundError→404, DataValidationError→400,
+   rejections→409, BrokerError→502, Storage/Configuration→500).
+   Los tests de flujo usan el SimulatedBroker con moto (sin AWS real).
+
+### Verificacion ejecutada
+
+- `pytest tests/unit tests/property tests/integration`: 327 passed.
+- `ruff check` + `ruff format`: limpio. `mypy --strict src`: sin errores.
+- Pendiente para el cierre de la parte A: `make check` completo
+  (incluye cobertura >= 90 % en executor/core), `cdk synth`, push y PR.

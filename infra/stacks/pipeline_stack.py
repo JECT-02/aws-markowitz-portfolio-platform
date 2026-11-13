@@ -100,6 +100,7 @@ class PipelineStack(Stack):
                 **runtime_environment,
                 "SILVER_BUCKET": data.silver_bucket.bucket_name,
                 "GOLD_BUCKET": data.gold_bucket.bucket_name,
+                "BRONZE_BUCKET": data.bronze_bucket.bucket_name,
                 "STATE_TABLE": data.state_table.table_name,
                 **config.strategy_environment,
             },
@@ -113,6 +114,7 @@ class PipelineStack(Stack):
         data.bronze_bucket.grant_put(ingest)
         data.quarantine_bucket.grant_put(ingest)
         data.bronze_bucket.grant_read(clean)
+        data.bronze_bucket.grant_read(optimizer)
         data.silver_bucket.grant_read_write(clean)
         data.silver_bucket.grant_read(optimizer)
         data.gold_bucket.grant_read_write(optimizer)

@@ -43,3 +43,23 @@ class IdempotencyConflict(PortfolioError):
 
 class NotFoundError(PortfolioError):
     """Raised when a requested artifact or state does not exist."""
+
+
+class BrokerError(PortfolioError):
+    """Raised when the broker rejects or fails a trading operation."""
+
+
+class ProposalExpired(PortfolioError):
+    """Raised when a proposal is no longer valid for execution."""
+
+
+class ProposalNotPending(PortfolioError):
+    """Raised when a proposal is not in the PENDING state for execution."""
+
+
+class MarketClosed(PortfolioError):
+    """Raised when order submission is attempted while the market is closed."""
+
+
+class PriceDriftExceeded(PortfolioError):
+    """Raised when current prices deviate beyond the configured threshold."""

@@ -26,7 +26,7 @@ from optimizer.core.metrics import (
 )
 from optimizer.core.models import PortfolioMetrics, Proposal
 from optimizer.core.problem import INACCURATE_STATUS, INACCURATE_TOLERANCE, MarkowitzOptimizer
-from optimizer.core.repository import ReturnsMatrix, ReturnsRepository
+from optimizer.core.repository import PricesRepository, ReturnsMatrix, ReturnsRepository
 
 logger = get_logger(__name__)
 
@@ -59,6 +59,7 @@ class OptimizerService:
         universe: UniverseConfig,
         strategy: StrategyConfig,
         clock: Clock,
+        prices: PricesRepository,
     ) -> None:
         self._repository = repository
         self._storage = storage
@@ -66,6 +67,7 @@ class OptimizerService:
         self._universe = universe
         self._strategy = strategy
         self._clock = clock
+        self._prices = prices
 
     def run(
         self,
@@ -77,6 +79,15 @@ class OptimizerService:
         if matrix.n_assets < MIN_ASSETS:
             raise InfeasibleError(
                 f"only {matrix.n_assets} assets have sufficient history; {MIN_ASSETS} required"
+            )
+        reference_prices = self._prices.load_reference_prices(
+            metadata.run_date,
+            metadata.source,
+        )
+        missing_prices = [symbol for symbol in matrix.symbols if symbol not in reference_prices]
+        if missing_prices:
+            raise DataValidationError(
+                "missing reference prices for symbols: " + ", ".join(missing_prices)
             )
         estimates = estimate(matrix.values, self._strategy.return_shrinkage_alpha)
         if actual_weights is None:
@@ -140,7 +151,7 @@ class OptimizerService:
             excluded=matrix.excluded,
             run_date=metadata.run_date,
         )
-        self._write(proposal)
+        self._write(proposal, reference_prices)
         logger.info(
             "optimizer completed",
             extra={
@@ -152,12 +163,20 @@ class OptimizerService:
         )
         return proposal
 
-    def _write(self, proposal: Proposal) -> None:
-        # First proposal per run date wins, matching the conditional DynamoDB write.
+    def _write(self, proposal: Proposal, reference_prices: Mapping[str, float]) -> None:
+        # First artifact per run date wins, matching the conditional DynamoDB write.
         payload = proposal.model_dump(mode="json")
         key = f"run_date={proposal.run_date.isoformat()}/proposal.json"
         self._storage.write_json_if_absent(self._gold_bucket, key, payload)
         self._storage.write_json_if_absent(self._gold_bucket, "latest.json", payload)
+        prices_key = f"run_date={proposal.run_date.isoformat()}/prices.json"
+        self._storage.write_json_if_absent(
+            self._gold_bucket,
+            prices_key,
+            {
+                "prices": {symbol: price for symbol, price in sorted(reference_prices.items())},
+            },
+        )
 
 
 def _metrics(

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from common.config import (
+    ExecutorConfig,
     RuntimeSettings,
     StorageSettings,
     StrategyConfig,
@@ -106,6 +107,36 @@ def test_storage_settings_missing_variables() -> None:
     with pytest.raises(ConfigurationError) as error:
         StorageSettings.from_environment({"BRONZE_BUCKET": "bronze"})
     assert "QUARANTINE_BUCKET" in str(error.value)
+
+
+def test_executor_config_from_environment() -> None:
+    config = ExecutorConfig.from_environment(_executor_env())
+    assert config.min_order_notional == pytest.approx(50.0)
+    assert config.max_price_drift_pct == pytest.approx(0.01)
+    assert config.execution_timeout_seconds == 60
+
+
+def test_executor_config_requires_every_variable() -> None:
+    environ = _executor_env()
+    del environ["EXECUTOR_MAX_PRICE_DRIFT_PCT"]
+    with pytest.raises(ConfigurationError) as error:
+        ExecutorConfig.from_environment(environ)
+    assert "EXECUTOR_MAX_PRICE_DRIFT_PCT" in str(error.value)
+
+
+def test_executor_config_rejects_invalid_values() -> None:
+    environ = _executor_env()
+    environ["EXECUTOR_MAX_PRICE_DRIFT_PCT"] = "2"
+    with pytest.raises(ConfigurationError):
+        ExecutorConfig.from_environment(environ)
+
+
+def _executor_env() -> dict[str, str]:
+    return {
+        "EXECUTOR_MIN_ORDER_NOTIONAL": "50",
+        "EXECUTOR_MAX_PRICE_DRIFT_PCT": "0.01",
+        "EXECUTOR_EXECUTION_TIMEOUT_SECONDS": "60",
+    }
 
 
 def _runtime_env() -> dict[str, str]:

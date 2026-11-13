@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from common.errors import DataValidationError
+from common.models import DataSource
 from common.storage import ObjectStorage
 
 REQUIRED_COLUMNS = frozenset({"date", "symbol", "log_return"})
@@ -40,6 +41,56 @@ class ReturnsRepository(Protocol):
         window_days: int,
         max_days: int | None = None,
     ) -> ReturnsMatrix: ...
+
+
+class PricesRepository(Protocol):
+    """Source of the reference prices captured at proposal time."""
+
+    def load_reference_prices(self, run_date: date, source: DataSource) -> dict[str, float]: ...
+
+
+class BronzePricesRepository:
+    """Reads the last adjusted close of every bronze bar series."""
+
+    def __init__(self, storage: ObjectStorage, bronze_bucket: str) -> None:
+        self._storage = storage
+        self._bronze_bucket = bronze_bucket
+
+    def load_reference_prices(self, run_date: date, source: DataSource) -> dict[str, float]:
+        """Load the last close per symbol from the bronze run partition."""
+        prefix = (
+            f"year={run_date.year:04d}/month={run_date.month:02d}/day={run_date.day:02d}"
+            f"/source={source.value}/"
+        )
+        keys = self._storage.list_keys(self._bronze_bucket, prefix)
+        prices: dict[str, float] = {}
+        for key in keys:
+            symbol = _symbol_from_key(key, prefix)
+            if symbol is None:
+                continue
+            document = self._storage.read_json(self._bronze_bucket, key)
+            close = _last_close(document.get("bars"))
+            if close is not None:
+                prices[symbol] = close
+        if not prices:
+            raise DataValidationError("no bronze reference prices for the run date")
+        return prices
+
+
+def _symbol_from_key(key: str, prefix: str) -> str | None:
+    remainder = key[len(prefix) :]
+    if not remainder.startswith("symbol=") or not remainder.endswith("/bars.json"):
+        return None
+    symbol = remainder[len("symbol=") : -len("/bars.json")]
+    return symbol.strip().upper() or None
+
+
+def _last_close(bars: object) -> float | None:
+    if not isinstance(bars, list) or not bars:
+        return None
+    closes = [float(bar["close"]) for bar in bars if isinstance(bar, dict) and "close" in bar]
+    valid = [close for close in closes if close > 0.0 and np.isfinite(close)]
+    return valid[-1] if valid else None
 
 
 class SilverReturnsRepository:
