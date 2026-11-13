@@ -24,8 +24,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "aws-cdk-lib>=2.276.0",
     "bandit",
     "boto3-stubs[s3]",
+    "constructs>=10.8.1",
     "hypothesis",
     "moto",
     "mypy",
@@ -63,6 +65,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra --strict-markers --import-mode=importlib"
 
 [tool.coverage.run]
