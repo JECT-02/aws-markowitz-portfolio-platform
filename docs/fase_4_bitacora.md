@@ -1,5 +1,69 @@
 # Fase 4 — Bitácora
 
+## Rama `feat/web-spa`: SPA estática + CloudFront + PKCE (2026-11-13)
+
+Cuatro commits atómicos:
+
+1. **Activos SPA** (`web/`): `index.html` (secciones proposal/metrics/monitor/
+   backtest, botones login/logout), `styles.css` (tema oscuro, clases de
+   estado), `app.js` (login PKCE S256 con `crypto.subtle`, intercambio de code
+   en `oauth2/token`, tokens solo en `sessionStorage`, `apiGet` con manejo
+   401/404, gráfico Plotly de pesos propuestos vs actuales) y `config.js` con
+   placeholders `{{ API_ENDPOINT }}`/`{{ COGNITO_DOMAIN }}`/`{{ CLIENT_ID }}`.
+   Plotly fijado por CDN a la versión 2.35.2. Sintaxis verificada con
+   `node --check`; no hay pytest para JS estático (documentado como riesgo).
+2. **Dominio Cognito + PKCE condicional**: `UserPoolDomain` con prefijo
+   determinista `{project}-{env}` en `ApiStack`. El OAuth del cliente web pasa
+   a ser condicional: si `SPA_ALLOWED_ORIGIN` está definida se habilita solo
+   authorization code grant (scopes openid/email/profile) con callback y
+   logout en ese origen; sin ella sigue deshabilitado (tests de ambas ramas).
+3. **WebStack**: bucket S3 privado versionado (`secure_bucket`), distribución
+   CloudFront con OAC, `REDIRECT_TO_HTTPS`, error responses 403/404 →
+   `index.html` (SPA routing), `BucketDeployment` de los activos (excluyendo
+   `config.js`) con invalidación `/*`, y `DeployTimeSubstitutedFile` que
+   sustituye los placeholders de `config.js` en deploy-time con los outputs de
+   `ApiStack` (endpoint, dominio Cognito, client id). `config.js` se sirve con
+   `CACHING_DISABLED` para que siempre refleje el último deploy. Outputs:
+   `SpaUrl` y `CognitoDomain`.
+4. **Bitácora** (este documento).
+
+### Corrección adicional (pre-existente)
+
+- `test_large_transaction_cost_keeps_actual_weights` fallaba en `main` con un
+  ejemplo de hypothesis (5 activos, seed 746): Ledoit-Wolf produce una
+  covarianza degenerada (identidad escalada) y λ=1e7 hace el QP
+  numéricamente intractable para CLARABEL (~10 órdenes de magnitud entre el
+  término L1 y μ). El invariante λ→∞ se verifica con λ=1e4, que ya fija
+  w=w_actual (domina μ por ~1e7). La lógica del optimizador no cambió; el
+  fallo de solver en producción sigue siendo fail-closed (propuesta FAILED).
+
+### Decisiones técnicas
+
+- `DeployTimeSubstitutedFile` usa placeholders `{{ KEY }}` (doble llave con
+  espacios), no `@@KEY@@`; su `source` es una ruta plana, no un
+  `IS3DeploymentSource`. Ambos despliegues emiten recursos
+  `Custom::CDKBucketDeployment`.
+- Orden de commits: primero el dominio Cognito (el WebStack referencia
+  `user_pool_domain`), para que cada commit sintetice en verde.
+- Activación de la SPA en dos pasos (documentada en el plan): deploy con
+  `SPA_ALLOWED_ORIGIN` vacía → tomar `SpaUrl` del output → definir
+  `SPA_ALLOWED_ORIGIN=https://<distribution>` → redeploy (activa CORS y
+  callbacks PKCE). El `.env` local ya trae la variable vacía.
+
+### Costo estimado mensual
+
+- CloudFront: ~$0 (free tier, tráfico mínimo).
+- S3: ~$0 (unos KB, storage gateway no aplica).
+- Invalidaciones: incluidas en el free tier (1000/mes).
+
+### Verificación ejecutada
+
+- `make check` EXIT=0: 308 pruebas en verde, cobertura 89.25 %.
+- `make synth`: 4 stacks sintetizados incluido `portfolio-markowitz-web-dev`.
+- `node --check web/app.js`: sin errores de sintaxis.
+- No se ejecutó: `cdk diff` (requiere credenciales AWS), build Docker,
+  despliegue, ni ninguna llamada real de red.
+
 ## Rama `feat/api-stack`: Cognito + HTTP API + Reader (2026-11-13)
 
 Cuatro commits atómicos:
