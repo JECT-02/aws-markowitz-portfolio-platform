@@ -21,6 +21,30 @@ READER_TIMEOUT = Duration.seconds(10)
 READER_ROUTES = ("/proposal", "/metrics", "/monitor", "/backtest")
 
 
+def _client_oauth(spa_allowed_origin: str | None) -> cognito.OAuthSettings:
+    if spa_allowed_origin is None:
+        return cognito.OAuthSettings(
+            flows=cognito.OAuthFlows(
+                implicit_code_grant=False,
+                authorization_code_grant=False,
+            ),
+            scopes=[],
+        )
+    return cognito.OAuthSettings(
+        flows=cognito.OAuthFlows(
+            implicit_code_grant=False,
+            authorization_code_grant=True,
+        ),
+        scopes=[
+            cognito.OAuthScope.OPENID,
+            cognito.OAuthScope.EMAIL,
+            cognito.OAuthScope.PROFILE,
+        ],
+        callback_urls=[spa_allowed_origin],
+        logout_urls=[spa_allowed_origin],
+    )
+
+
 class ApiStack(Stack):
     """Cognito authentication and the read-only HTTP API for the Reader."""
 
@@ -55,6 +79,14 @@ class ApiStack(Stack):
             account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
             removal_policy=RemovalPolicy.RETAIN,
         )
+        self.user_pool_domain = cognito.UserPoolDomain(
+            self,
+            "UserPoolDomain",
+            user_pool=self.user_pool,
+            cognito_domain=cognito.CognitoDomainOptions(
+                domain_prefix=f"{PROJECT_NAME}-{config.env_name}",
+            ),
+        )
         self.web_client = cognito.UserPoolClient(
             self,
             "WebClient",
@@ -67,13 +99,7 @@ class ApiStack(Stack):
                 admin_user_password=False,
                 custom=False,
             ),
-            o_auth=cognito.OAuthSettings(
-                flows=cognito.OAuthFlows(
-                    implicit_code_grant=False,
-                    authorization_code_grant=False,
-                ),
-                scopes=[],
-            ),
+            o_auth=_client_oauth(config.spa_allowed_origin),
             prevent_user_existence_errors=True,
         )
         self.reader_repository = ecr.Repository(
