@@ -42,6 +42,7 @@ class _Service:
             metrics={},
             covariance_shrinkage=0.1,
             window_days=252,
+            prices_ref="2024-02-01..2025-01-31",
             excluded={"QQQ": "no_data"},
             run_date=metadata.run_date,
         )

@@ -130,6 +130,7 @@ def test_service_writes_proposal_and_latest() -> None:
     proposal = service.run(_metadata())
     assert repository.calls == [(SYMBOLS, strategy.window_days)]
     assert proposal.proposal_id == "2025-01-02-run-1"
+    assert proposal.prices_ref == "2024-09-01..2024-09-01"
     assert proposal.status in {"PENDING", "NO_REBALANCE"}
     assert sum(proposal.weights.values()) == pytest.approx(1.0, abs=1e-6)
     assert set(proposal.metrics) == {"optimizer", "equal_weight", "minimum_variance", "spy"}

@@ -74,6 +74,16 @@ def test_all_modes_produce_finite_results(mode: str) -> None:
     assert result.final_weights.sum() == pytest.approx(1.0, abs=1e-6)
 
 
+def test_all_modes_share_the_same_start_date() -> None:
+    engine = _engine()
+    matrix = _matrix()
+    starts = {
+        mode: engine.run(matrix, mode).dates[0]
+        for mode in ("optimizer", "equal_weight", "minimum_variance", "spy")
+    }
+    assert len(set(starts.values())) == 1
+
+
 def test_optimizer_rebalances_monthly_and_respects_limits() -> None:
     result = _engine().run(_matrix(), "optimizer")
     assert len(result.rebalances) >= 4

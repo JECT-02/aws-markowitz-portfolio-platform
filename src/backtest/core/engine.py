@@ -161,9 +161,13 @@ class BacktestEngine:
 
     def _run_spy(self, matrix: ReturnsMatrix) -> BacktestResult:
         window = self._strategy.window_days
+        rebalance_rows = _monthly_indices(matrix.dates, window)
+        if not rebalance_rows:
+            raise DataValidationError("not enough history for a rebalance")
+        start = rebalance_rows[0]
         weights = spy_weights(matrix.symbols)
-        returns = portfolio_log_returns(matrix.values[window:], weights)
-        dates = matrix.dates[window:]
+        returns = portfolio_log_returns(matrix.values[start:], weights)
+        dates = matrix.dates[start:]
         equity = INITIAL_EQUITY * np.exp(np.cumsum(returns))
         return BacktestResult(
             mode="spy",

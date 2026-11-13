@@ -81,6 +81,7 @@ class DynamoPortfolioState:
             "run_date": {"S": proposal.run_date.isoformat()},
             "run_id": {"S": proposal.metadata.run_id},
             "code_version": {"S": proposal.metadata.code_version},
+            "prices_ref": {"S": proposal.prices_ref},
             "drift_l1": _number(proposal.drift_l1),
             "rebalance_required": {"BOOL": proposal.rebalance_required},
         }
