@@ -39,3 +39,7 @@ class SecretError(PortfolioError):
 
 class IdempotencyConflict(PortfolioError):
     """Raised when a conditional state write finds an existing item."""
+
+
+class NotFoundError(PortfolioError):
+    """Raised when a requested artifact or state does not exist."""
