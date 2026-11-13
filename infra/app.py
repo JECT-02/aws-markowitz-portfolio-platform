@@ -6,6 +6,7 @@ from pathlib import Path
 import aws_cdk as cdk
 
 from infra.config import PROJECT_NAME, load_deploy_config
+from infra.stacks.api_stack import ApiStack
 from infra.stacks.data_stack import DataStack
 from infra.stacks.pipeline_stack import PipelineStack
 
@@ -30,6 +31,12 @@ def main() -> None:
         f"{PROJECT_NAME}-pipeline-{config.env_name}",
         config=config,
         data=data,
+        env=environment,
+    )
+    ApiStack(
+        app,
+        f"{PROJECT_NAME}-api-{config.env_name}",
+        config=config,
         env=environment,
     )
     app.synth()
