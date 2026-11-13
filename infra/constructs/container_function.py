@@ -23,10 +23,14 @@ def container_function(
     environment: Mapping[str, str],
     timeout: Duration,
     memory_size: int,
-    dlq: sqs.IQueue,
+    dlq: sqs.IQueue | None = None,
     description: str,
 ) -> lambda_.DockerImageFunction:
-    """Create a container Lambda with bounded retries, a DLQ and short log retention."""
+    """Create a container Lambda with bounded retries, a DLQ and short log retention.
+
+    The dead-letter queue is optional: it only applies to asynchronous
+    invocations, so a synchronous function such as the Reader has none.
+    """
     log_group = logs.LogGroup(
         scope,
         f"{construct_id}LogGroup",
@@ -34,22 +38,22 @@ def container_function(
         retention=LOG_RETENTION,
         removal_policy=RemovalPolicy.RETAIN,
     )
-    return lambda_.DockerImageFunction(
-        scope,
-        construct_id,
-        function_name=function_name,
-        code=lambda_.DockerImageCode.from_ecr(
+    settings: dict[str, object] = {
+        "function_name": function_name,
+        "code": lambda_.DockerImageCode.from_ecr(
             repository,
             tag_or_digest=image_tag,
             cmd=list(command),
         ),
-        environment=dict(environment),
-        architecture=lambda_.Architecture.X86_64,
-        timeout=timeout,
-        memory_size=memory_size,
-        dead_letter_queue=dlq,
-        dead_letter_queue_enabled=True,
-        retry_attempts=0,
-        log_group=log_group,
-        description=description,
-    )
+        "environment": dict(environment),
+        "architecture": lambda_.Architecture.X86_64,
+        "timeout": timeout,
+        "memory_size": memory_size,
+        "retry_attempts": 0,
+        "log_group": log_group,
+        "description": description,
+    }
+    if dlq is not None:
+        settings["dead_letter_queue"] = dlq
+        settings["dead_letter_queue_enabled"] = True
+    return lambda_.DockerImageFunction(scope, construct_id, **settings)  # type: ignore[arg-type]
