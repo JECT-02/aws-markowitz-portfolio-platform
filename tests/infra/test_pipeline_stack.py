@@ -139,6 +139,8 @@ def test_state_machine_has_explicit_failure_path() -> None:
     assert states["Ingest"]["Catch"][0]["Next"] == "NotifyFailure"
     assert states["Optimize"]["Catch"][0]["Next"] == "NotifyFailure"
     assert states["CheckMarketCalendar"]["Choices"][0]["StringEquals"] == "SKIPPED"
+    clean_parameters = states["Clean"]["Parameters"]
+    assert clean_parameters["accepted.$"] == "$.accepted"
 
 
 def test_scheduler_uses_new_york_close() -> None:

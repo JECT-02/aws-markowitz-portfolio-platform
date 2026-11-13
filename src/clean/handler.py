@@ -14,7 +14,7 @@ from common.config import (
     load_universe_config,
 )
 from common.env import load_env_file
-from common.errors import ConfigurationError
+from common.errors import ConfigurationError, DataValidationError
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
@@ -44,7 +44,7 @@ def run_clean(event: Mapping[str, object], deps: CleanDependencies) -> dict[str,
     )
     result = deps.service.run(
         metadata,
-        deps.universe.tickers,
+        _resolve_symbols(event, deps.universe.tickers),
         deps.strategy.max_forward_fill_days,
     )
     logger.info(
@@ -93,6 +93,23 @@ def _build_dependencies() -> CleanDependencies:
         strategy=strategy,
         code_version=runtime.code_version,
     )
+
+
+def _resolve_symbols(
+    event: Mapping[str, object],
+    tickers: list[str],
+) -> list[str]:
+    """Restrict cleaning to the symbols accepted by ingestion when provided."""
+    value = event.get("accepted")
+    if value is None:
+        return tickers
+    if not isinstance(value, Mapping):
+        raise ConfigurationError("accepted must be an object")
+    accepted = {str(symbol).strip().upper() for symbol in value}
+    symbols = [ticker for ticker in tickers if ticker in accepted]
+    if not symbols:
+        raise DataValidationError("ingestion accepted no symbols for cleaning")
+    return symbols
 
 
 def _resolve_source(event: Mapping[str, object]) -> DataSource:

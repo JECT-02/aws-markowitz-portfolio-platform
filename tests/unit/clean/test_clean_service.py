@@ -106,6 +106,30 @@ def test_insufficient_history_symbol_is_excluded() -> None:
     assert result.excluded == {"SPY": "insufficient_history"}
 
 
+def test_quarantined_series_never_reach_silver() -> None:
+    storage = _storage(
+        {
+            # Anomalous jump above the 0.40 daily log-return bound.
+            "SPY": {2: 100.0, 3: 100.0, 4: 160.0},
+            "QQQ": {2: 100.0, 3: 101.0, 4: 102.0},
+        }
+    )
+    service = CleanService(storage, "bronze", "silver")
+    result = service.run(_metadata(), ["SPY", "QQQ"], 0)
+    assert result.used == ["QQQ"]
+    assert result.excluded == {"SPY": "invalid_data"}
+    assert storage.parquet_objects[("silver", "year=2024/month=01/returns.parquet")].column(
+        "symbol"
+    ).to_pylist() == ["QQQ", "QQQ"]
+
+
+def test_all_symbols_invalid_is_rejected() -> None:
+    storage = _storage({"SPY": {2: 100.0, 3: 100.0, 4: 160.0}})
+    service = CleanService(storage, "bronze", "silver")
+    with pytest.raises(DataValidationError):
+        service.run(_metadata(), ["SPY"], 0)
+
+
 def test_all_symbols_missing_is_rejected() -> None:
     storage = _MemoryStorage()
     service = CleanService(storage, "bronze", "silver")

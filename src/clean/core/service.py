@@ -11,6 +11,7 @@ from common.models import BarSeries, CleanResult, RawBarSeries, RunMetadata
 from common.storage import ObjectStorage
 from ingest.core.keys import bronze_object_key
 from ingest.core.parsing import parse_series
+from ingest.core.validation import validate_bar_series
 
 logger = get_logger(__name__)
 
@@ -47,12 +48,23 @@ class CleanService:
             raise DataValidationError("max_forward_fill_days must be non-negative")
         series_by_symbol: dict[str, BarSeries] = {}
         missing: list[str] = []
+        invalid: dict[str, str] = {}
         for symbol in symbols:
             series = self._load_series(metadata, symbol)
             if series is None:
                 missing.append(symbol)
-            else:
-                series_by_symbol[symbol] = series
+                continue
+            try:
+                validate_bar_series(series)
+            except DataValidationError as exc:
+                # Fail-closed: quarantined payloads must never reach silver.
+                logger.warning(
+                    "bronze payload rejected by clean validation",
+                    extra={"symbol": symbol, "detail": str(exc)},
+                )
+                invalid[symbol] = "invalid_data"
+                continue
+            series_by_symbol[symbol] = series
         if not series_by_symbol:
             raise DataValidationError("no bronze series available for cleaning")
         aligned = build_returns(series_by_symbol, max_forward_fill_days)
@@ -61,7 +73,7 @@ class CleanService:
             metadata=metadata,
             used=sorted(series_by_symbol),
             missing=missing,
-            excluded=aligned.excluded,
+            excluded={**invalid, **aligned.excluded},
             partitions=partitions,
         )
 
