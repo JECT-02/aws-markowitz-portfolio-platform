@@ -3,6 +3,9 @@ mock_provider "aws" {}
 variables {
   project = "portfolio-markowitz-aws"
   env     = "dev"
+
+  alpaca_api_key_parameter    = "/portfolio-markowitz/dev/alpaca/api-key"
+  alpaca_secret_key_parameter = "/portfolio-markowitz/dev/alpaca/secret-key"
 }
 
 run "bronze_bucket_is_versioned" {
@@ -126,5 +129,19 @@ run "email_subscription_is_conditional" {
   assert {
     condition     = length(aws_sns_topic_subscription.email) == 0
     error_message = "Without notification_email no subscription is created."
+  }
+}
+
+run "alpaca_parameters_are_created_at_the_expected_paths" {
+  command = plan
+
+  assert {
+    condition     = aws_ssm_parameter.alpaca_api_key.name == var.alpaca_api_key_parameter && aws_ssm_parameter.alpaca_secret_key.name == var.alpaca_secret_key_parameter
+    error_message = "Both Alpaca credential placeholders must exist at the documented SSM paths."
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.alpaca_api_key.type == "SecureString" && aws_ssm_parameter.alpaca_secret_key.type == "SecureString"
+    error_message = "Alpaca credentials must be SecureString (AGENTS.md section 12)."
   }
 }
