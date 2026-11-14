@@ -1,8 +1,6 @@
-CDK_CLI := npx --yes aws-cdk@2.1148.1
-
 TF_ROOTS := infra/bootstrap infra/envs/dev
 
-.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check synth diff tf-fmt tf-validate tf-lint tf-test tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer
+.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer
 
 install:
 	uv sync
