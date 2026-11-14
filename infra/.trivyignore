@@ -6,3 +6,8 @@
 # budget, with no benefit for a private single-account state bucket that
 # only holds Terraform state.
 AVD-AWS-0132
+
+# AVD-AWS-0136 (SNS notifications topic): encrypted with the free AWS-managed
+# key (alias/aws/sns); a customer-managed key adds ~$1/month with no
+# benefit for a single-account, single-user notification topic.
+AVD-AWS-0136
