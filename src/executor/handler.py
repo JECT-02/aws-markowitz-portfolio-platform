@@ -24,7 +24,11 @@ from common.errors import (
 )
 from common.logging import configure_logging, get_logger
 from common.storage import S3Storage
+from executor.adapters.alpaca import AlpacaPaperBroker
+from executor.adapters.notifications import SnsResultNotifier
+from executor.adapters.secrets import load_alpaca_credentials
 from executor.core.execution import RebalanceService
+from executor.core.models import ExecutionResult
 from executor.core.prices import GoldPricesRepository
 from executor.core.state import DynamoExecutionState
 
@@ -33,10 +37,18 @@ logger = get_logger(__name__)
 _CONTENT_TYPE = "application/json"
 _REBALANCE_ROUTE = "POST /rebalance"
 
+_ALPACA_PAPER_ENV = "ALPACA_PAPER"
+_ALPACA_API_KEY_PARAMETER_ENV = "ALPACA_API_KEY_PARAMETER"
+# B105 false positive: the constant holds the *name* of an environment
+# variable (an SSM parameter path), never the secret itself.
+_ALPACA_SECRET_KEY_PARAMETER_ENV = "ALPACA_SECRET_KEY_PARAMETER"  # nosec B105
+_NOTIFICATIONS_TOPIC_ENV = "NOTIFICATIONS_TOPIC_ARN"
+
 
 @dataclass(frozen=True)
 class ExecutorDependencies:
     service: RebalanceService
+    notifier: SnsResultNotifier | None = None
 
 
 def handler(event: Mapping[str, Any], _context: object | None = None) -> dict[str, Any]:
@@ -78,6 +90,7 @@ def run_executor(event: Mapping[str, Any], deps: ExecutorDependencies) -> dict[s
     except Exception:
         logger.exception("unexpected executor failure", extra={"route": route})
         return _response(500, {"message": "internal error"})
+    _notify(deps, result, route)
     logger.info(
         "rebalance executed",
         extra={
@@ -86,6 +99,28 @@ def run_executor(event: Mapping[str, Any], deps: ExecutorDependencies) -> dict[s
         },
     )
     return _response(200, result.model_dump(mode="json"))
+
+
+def _notify(
+    deps: ExecutorDependencies,
+    result: ExecutionResult,
+    route: str,
+) -> None:
+    """Publish the final outcome to SNS; notification failures never mask it.
+
+    AGENTS.md section 6.13 requires notifying every final status; a failed
+    publish is logged at ERROR level with context but the execution result
+    already reached the caller.
+    """
+    if deps.notifier is None:
+        return
+    try:
+        deps.notifier.notify(result)
+    except PortfolioError:
+        logger.exception(
+            "rebalance notification failed",
+            extra={"route": route, "proposal_id": result.proposal_id},
+        )
 
 
 def build_dependencies() -> ExecutorDependencies:
@@ -99,7 +134,7 @@ def build_dependencies() -> ExecutorDependencies:
     state = DynamoExecutionState(table_name.strip(), region_name=runtime.aws_region)
     storage = S3Storage(region_name=runtime.aws_region)
     prices = GoldPricesRepository(storage, storage_settings.gold_bucket)
-    broker = _build_broker()
+    broker = _build_broker(runtime)
     service = RebalanceService(
         state=state,
         broker=broker,
@@ -107,16 +142,45 @@ def build_dependencies() -> ExecutorDependencies:
         config=config,
         clock=SystemClock(),
     )
-    return ExecutorDependencies(service=service)
+    topic_arn = os.environ.get(_NOTIFICATIONS_TOPIC_ENV, "")
+    notifier = (
+        SnsResultNotifier(
+            topic_arn=topic_arn,
+            region_name=runtime.aws_region,
+        )
+        if topic_arn.strip()
+        else None
+    )
+    return ExecutorDependencies(service=service, notifier=notifier)
 
 
-def _build_broker() -> Any:
-    """Return the production broker adapter.
+def _build_broker(runtime: RuntimeSettings) -> AlpacaPaperBroker:
+    """Build the Alpaca paper trading adapter from the environment.
 
-    The Alpaca paper trading adapter lands with the broker integration branch;
-    until then the endpoint cannot be deployed without one.
+    Precondition: ALPACA_PAPER is exactly "true" (Terraform writes it as an
+    immutable literal) and both SSM parameter paths are configured.
+    Postcondition: the returned broker refuses any non-paper endpoint.
     """
-    raise ConfigurationError("the production broker adapter is not wired yet (phase 5B)")
+    paper = os.environ.get(_ALPACA_PAPER_ENV, "")
+    if paper.strip().lower() != "true":
+        raise ConfigurationError(f"{_ALPACA_PAPER_ENV} must be 'true'; live trading is forbidden")
+    api_key_parameter = os.environ.get(_ALPACA_API_KEY_PARAMETER_ENV, "")
+    secret_key_parameter = os.environ.get(_ALPACA_SECRET_KEY_PARAMETER_ENV, "")
+    if not api_key_parameter.strip() or not secret_key_parameter.strip():
+        raise ConfigurationError(
+            f"missing environment variables: {_ALPACA_API_KEY_PARAMETER_ENV}, "
+            f"{_ALPACA_SECRET_KEY_PARAMETER_ENV}"
+        )
+    credentials = load_alpaca_credentials(
+        api_key_parameter=api_key_parameter.strip(),
+        secret_key_parameter=secret_key_parameter.strip(),
+        region_name=runtime.aws_region,
+    )
+    return AlpacaPaperBroker(
+        api_key=credentials.api_key,
+        secret_key=credentials.secret_key,
+        paper=True,
+    )
 
 
 def _parse_request(event: Mapping[str, Any]) -> tuple[str, str]:
