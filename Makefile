@@ -32,6 +32,7 @@ test-integration:
 test-infra:
 	uv run pytest tests/infra
 	cd infra/modules/data && terraform test
+	cd infra/modules/pipeline && terraform test
 
 coverage:
 	uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
@@ -54,6 +55,7 @@ tf-lint:
 
 tf-test:
 	cd infra/modules/data && terraform test
+	cd infra/modules/pipeline && terraform test
 
 tf-plan:
 	cd infra/envs/dev && terraform init && terraform plan -out=tfplan

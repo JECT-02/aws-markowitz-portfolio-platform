@@ -308,9 +308,19 @@ output "bronze_bucket_name" {
   value       = aws_s3_bucket.lakehouse["bronze"].id
 }
 
+output "bronze_bucket_arn" {
+  description = "Bronze bucket ARN."
+  value       = aws_s3_bucket.lakehouse["bronze"].arn
+}
+
 output "quarantine_bucket_name" {
   description = "Quarantine bucket (rejected batches)."
   value       = aws_s3_bucket.lakehouse["quarantine"].id
+}
+
+output "quarantine_bucket_arn" {
+  description = "Quarantine bucket ARN."
+  value       = aws_s3_bucket.lakehouse["quarantine"].arn
 }
 
 output "silver_bucket_name" {
@@ -318,9 +328,19 @@ output "silver_bucket_name" {
   value       = aws_s3_bucket.lakehouse["silver"].id
 }
 
+output "silver_bucket_arn" {
+  description = "Silver bucket ARN."
+  value       = aws_s3_bucket.lakehouse["silver"].arn
+}
+
 output "gold_bucket_name" {
   description = "Gold bucket (served artifacts)."
   value       = aws_s3_bucket.lakehouse["gold"].id
+}
+
+output "gold_bucket_arn" {
+  description = "Gold bucket ARN."
+  value       = aws_s3_bucket.lakehouse["gold"].arn
 }
 
 output "portfolio_state_table_name" {
