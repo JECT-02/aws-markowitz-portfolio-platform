@@ -43,6 +43,26 @@ module "pipeline" {
   dlq_arns                = module.data.dlq_arns
 }
 
+module "api" {
+  source = "../../modules/api"
+
+  project      = "portfolio-markowitz-aws"
+  env          = var.env
+  image_tag    = var.optimizer_image_tag
+  code_version = var.code_version
+
+  spa_allowed_origin = var.spa_allowed_origin
+
+  bronze_bucket_name     = module.data.bronze_bucket_name
+  quarantine_bucket_name = module.data.quarantine_bucket_name
+  silver_bucket_name     = module.data.silver_bucket_name
+  gold_bucket_name       = module.data.gold_bucket_name
+  gold_bucket_arn        = module.data.gold_bucket_arn
+
+  state_table_name = module.data.portfolio_state_table_name
+  state_table_arn  = module.data.portfolio_state_table_arn
+}
+
 variable "env" {
   type        = string
   description = "Deployment environment name."
@@ -81,6 +101,12 @@ variable "alpaca_secret_key_parameter" {
   type        = string
   description = "SSM SecureString path holding the Alpaca secret key."
   default     = "/portfolio-markowitz/dev/alpaca/secret-key"
+}
+
+variable "spa_allowed_origin" {
+  type        = string
+  description = "HTTPS origin of the SPA (configures OAuth/CORS); empty disables them."
+  default     = ""
 }
 
 output "bronze_bucket_name" {
@@ -125,4 +151,24 @@ output "pipeline_function_arns" {
 
 output "pipeline_ecr_repository_uris" {
   value = module.pipeline.ecr_repository_uris
+}
+
+output "api_endpoint" {
+  value = module.api.api_endpoint
+}
+
+output "user_pool_id" {
+  value = module.api.user_pool_id
+}
+
+output "web_client_id" {
+  value = module.api.web_client_id
+}
+
+output "cognito_domain" {
+  value = module.api.cognito_domain
+}
+
+output "reader_function_name" {
+  value = module.api.reader_function_name
 }
