@@ -1,4 +1,4 @@
-TF_ROOTS := infra/bootstrap infra/envs/dev
+ENV ?= dev
 
 .PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer
 
@@ -60,13 +60,7 @@ tf-test:
 	cd infra/modules/web && terraform test
 
 tf-plan:
-	cd infra/envs/dev && terraform init && terraform plan -out=tfplan
-
-synth:
-	$(CDK_CLI) synth
-
-diff:
-	$(CDK_CLI) diff
+	cd infra/envs/$(ENV) && terraform init && terraform plan -out=tfplan
 
 run-optimizer-local:
 	uv run python -m optimizer.local
