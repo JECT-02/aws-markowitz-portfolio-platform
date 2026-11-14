@@ -11,3 +11,9 @@ AVD-AWS-0132
 # key (alias/aws/sns); a customer-managed key adds ~$1/month with no
 # benefit for a single-account, single-user notification topic.
 AVD-AWS-0136
+
+# AVD-AWS-0011 (CloudFront SPA distribution): an AWS WAFv2 WebACL costs
+# ~$5-6/month, which alone exceeds the $1-$5 monthly budget of AGENTS.md.
+# The SPA is a single-user, auth-gated static dashboard behind Cognito
+# (public content limited to static assets); the API itself is JWT-protected.
+AVD-AWS-0011

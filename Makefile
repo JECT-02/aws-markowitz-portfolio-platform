@@ -34,6 +34,7 @@ test-infra:
 	cd infra/modules/data && terraform test
 	cd infra/modules/pipeline && terraform test
 	cd infra/modules/api && terraform test
+	cd infra/modules/web && terraform test
 
 coverage:
 	uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
@@ -58,6 +59,7 @@ tf-test:
 	cd infra/modules/data && terraform test
 	cd infra/modules/pipeline && terraform test
 	cd infra/modules/api && terraform test
+	cd infra/modules/web && terraform test
 
 tf-plan:
 	cd infra/envs/dev && terraform init && terraform plan -out=tfplan

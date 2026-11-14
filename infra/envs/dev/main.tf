@@ -63,6 +63,16 @@ module "api" {
   state_table_arn  = module.data.portfolio_state_table_arn
 }
 
+module "web" {
+  source = "../../modules/web"
+
+  project        = "portfolio-markowitz-aws"
+  env            = var.env
+  api_endpoint   = module.api.api_endpoint
+  cognito_domain = "https://${module.api.cognito_domain}"
+  client_id      = module.api.web_client_id
+}
+
 variable "env" {
   type        = string
   description = "Deployment environment name."
@@ -171,4 +181,16 @@ output "cognito_domain" {
 
 output "reader_function_name" {
   value = module.api.reader_function_name
+}
+
+output "spa_url" {
+  value = module.web.spa_url
+}
+
+output "spa_bucket_name" {
+  value = module.web.spa_bucket_name
+}
+
+output "web_distribution_id" {
+  value = module.web.distribution_id
 }
