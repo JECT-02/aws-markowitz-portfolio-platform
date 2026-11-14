@@ -304,8 +304,8 @@ resource "aws_apigatewayv2_api" "reader" {
     for_each = var.spa_allowed_origin != "" ? [1] : []
     content {
       allow_origins = [var.spa_allowed_origin]
-      allow_methods = ["GET"]
-      allow_headers = ["Authorization"]
+      allow_methods = ["GET", "POST"]
+      allow_headers = ["Authorization", "Idempotency-Key"]
       max_age       = 3600
     }
   }

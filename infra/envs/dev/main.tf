@@ -64,6 +64,11 @@ module "api" {
 
   state_table_name = module.data.portfolio_state_table_name
   state_table_arn  = module.data.portfolio_state_table_arn
+
+  alpaca_api_key_parameter    = var.alpaca_api_key_parameter
+  alpaca_secret_key_parameter = var.alpaca_secret_key_parameter
+
+  notifications_topic_arn = module.data.notifications_topic_arn
 }
 
 module "web" {
@@ -192,6 +197,14 @@ output "cognito_domain" {
 
 output "reader_function_name" {
   value = module.api.reader_function_name
+}
+
+output "executor_function_name" {
+  value = module.api.executor_function_name
+}
+
+output "executor_ecr_repository_uri" {
+  value = module.api.executor_ecr_repository_uri
 }
 
 output "spa_url" {

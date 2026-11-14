@@ -13,6 +13,10 @@ variables {
   gold_bucket_arn        = "arn:aws:s3:::portfolio-markowitz-aws-dev-lakehouse-gold"
   state_table_name       = "portfolio-markowitz-aws-dev-portfolio-state"
   state_table_arn        = "arn:aws:dynamodb:us-east-1:123456789012:table/portfolio-markowitz-aws-dev-portfolio-state"
+
+  alpaca_api_key_parameter    = "/portfolio-markowitz/dev/alpaca/api-key"
+  alpaca_secret_key_parameter = "/portfolio-markowitz/dev/alpaca/secret-key"
+  notifications_topic_arn     = "arn:aws:sns:us-east-1:123456789012:portfolio-markowitz-aws-dev-notifications"
 }
 
 run "reader_is_a_bounded_container_image" {
@@ -133,5 +137,88 @@ run "cors_is_restricted_to_the_spa_origin" {
   assert {
     condition     = contains(flatten([for c in aws_apigatewayv2_api.reader.cors_configuration : c.allow_origins]), "https://spa.example.com")
     error_message = "CORS must be restricted to the configured SPA origin."
+  }
+
+  assert {
+    condition     = contains(flatten([for c in aws_apigatewayv2_api.reader.cors_configuration : c.allow_methods]), "POST")
+    error_message = "CORS must allow POST for the rebalance route."
+  }
+}
+
+run "executor_is_a_bounded_container_image" {
+  command = plan
+
+  assert {
+    condition     = aws_lambda_function.executor.package_type == "Image"
+    error_message = "The Executor ships as a container image."
+  }
+
+  assert {
+    condition     = aws_lambda_function.executor.memory_size == 512 && aws_lambda_function.executor.timeout == 25
+    error_message = "The Executor runs with 512 MB and a 25s timeout (below the 29s HTTP API sync cap)."
+  }
+}
+
+run "executor_log_group_is_bounded" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_log_group.executor.retention_in_days == 14
+    error_message = "Executor log retention must be bounded (14 days)."
+  }
+}
+
+run "executor_iam_is_least_privilege" {
+  command = plan
+
+  assert {
+    condition = alltrue(flatten([
+      for st in jsondecode(aws_iam_role_policy.executor_permissions.policy).Statement : [for a in try(tolist(st.Action), [st.Action]) : a != "*"]
+    ]))
+    error_message = "The Executor policy must not use wildcard actions."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for st in jsondecode(aws_iam_role_policy.executor_permissions.policy).Statement : [for r in try(tolist(st.Resource), [st.Resource]) : r != "*"]
+    ]))
+    error_message = "The Executor policy must not use wildcard resources."
+  }
+}
+
+run "executor_paper_mode_is_forced" {
+  command = plan
+
+  assert {
+    condition     = aws_lambda_function.executor.environment[0].variables.ALPACA_PAPER == "true"
+    error_message = "ALPACA_PAPER must be the immutable literal 'true' (AGENTS.md section 6.6)."
+  }
+
+  assert {
+    condition     = aws_lambda_function.executor.environment[0].variables.ALPACA_API_KEY_PARAMETER == var.alpaca_api_key_parameter
+    error_message = "The executor must read the Alpaca key from the documented SSM path."
+  }
+}
+
+run "rebalance_route_requires_jwt" {
+  command = plan
+
+  assert {
+    condition     = aws_apigatewayv2_route.executor_rebalance.route_key == "POST /rebalance"
+    error_message = "Exactly one rebalance route must exist."
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.executor_rebalance.authorization_type == "JWT"
+    error_message = "The rebalance route must require the Cognito JWT authorizer."
+  }
+}
+
+run "executor_execution_deadline_stays_inside_the_lambda_timeout" {
+  command = plan
+
+  assert {
+    condition     = var.executor_execution_timeout_seconds < aws_lambda_function.executor.timeout
+    error_message = "The fill polling deadline must stay below the Lambda timeout."
   }
 }
