@@ -24,10 +24,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "aws-cdk-lib>=2.276.0",
     "bandit",
     "boto3-stubs[s3]",
-    "constructs>=10.8.1",
     "hypothesis",
     "moto",
     "mypy",

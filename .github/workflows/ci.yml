@@ -1,0 +1,109 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          python-version: "3.12"
+      - name: Install environment
+        run: uv sync
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy --strict src
+      - name: Security (code)
+        run: |
+          uv run bandit -r src
+          uv run pip-audit
+      - name: Unit tests
+        run: uv run pytest tests/unit
+      - name: Property tests
+        run: uv run pytest tests/property
+      - name: Integration tests
+        run: uv run pytest tests/integration
+      - name: Coverage
+        run: uv run pytest --cov=src --cov-report=term --cov-fail-under=80
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36  # v3.0.0
+        with:
+          terraform_version: 1.15.7
+      - name: Terraform format
+        run: terraform fmt -check -recursive infra
+      - name: Terraform lint (tflint)
+        uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337  # v6.3.2
+      - name: Run tflint
+        run: |
+          tflint --version
+          cd infra && tflint --init && tflint --chdir . --recursive
+      - name: Terraform static analysis (trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: infra
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+      - name: Terraform module tests (mocked providers)
+        run: |
+          for module in data pipeline api web; do
+            (cd "infra/modules/$module" && terraform init -backend=false && terraform test)
+          done
+
+  # Read-only terraform plan against AWS via OIDC. Gated on the repository
+  # variable TERRAFORM_PLAN_ENABLED so it stays skipped until the human has
+  # applied infra/bootstrap once (creates the state bucket and the CI role).
+  plan:
+    runs-on: ubuntu-latest
+    if: vars.TERRAFORM_PLAN_ENABLED == 'true'
+    environment: plan-review
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36  # v3.0.0
+        with:
+          terraform_version: 1.15.7
+      - name: Configure AWS credentials (read-only plan role)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ vars.TERRAFORM_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Terraform plan (dev)
+        run: |
+          cd infra/envs/dev
+          terraform init
+          terraform plan -out=tfplan
+          terraform show -json tfplan > tfplan.json
+      - name: Upload plan for review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: tfplan-dev
+          path: |
+            infra/envs/dev/tfplan
+            infra/envs/dev/tfplan.json
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
