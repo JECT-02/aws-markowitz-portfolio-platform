@@ -77,4 +77,10 @@ build-clean:
 build-optimizer:
 	docker build -f src/optimizer/Dockerfile -t portfolio-markowitz-optimizer .
 
-build-images: build-ingest build-clean build-optimizer
+build-executor:
+	docker build -f src/executor/Dockerfile -t portfolio-markowitz-executor .
+
+build-images: build-ingest build-clean build-optimizer build-reader build-executor
+
+build-reader:
+	docker build -f src/reader/Dockerfile -t portfolio-markowitz-reader .

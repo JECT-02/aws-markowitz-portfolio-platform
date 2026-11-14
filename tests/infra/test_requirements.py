@@ -11,9 +11,11 @@ REQUIREMENTS = [
     ROOT / "src" / "clean" / "requirements.txt",
     ROOT / "src" / "optimizer" / "requirements.txt",
     ROOT / "src" / "reader" / "requirements.txt",
+    ROOT / "src" / "executor" / "requirements.txt",
 ]
 DOCKERFILES = {
-    name: ROOT / "src" / name / "Dockerfile" for name in ("ingest", "clean", "optimizer", "reader")
+    name: ROOT / "src" / name / "Dockerfile"
+    for name in ("ingest", "clean", "optimizer", "reader", "executor")
 }
 
 
@@ -51,6 +53,9 @@ def test_requirements_match_the_lockfile(path: Path) -> None:
 
 @pytest.mark.parametrize("path", REQUIREMENTS)
 def test_boto3_is_not_bundled(path: Path) -> None:
+    # The python:3.12 Lambda base image pre-installs the AWS SDK under
+    # /var/lang/lib/python3.12/site-packages (docs.aws.amazon.com/lambda,
+    # verified 2026-11-14), so bundling it would shadow the runtime SDK.
     assert "boto3" not in _pins(path)
 
 
