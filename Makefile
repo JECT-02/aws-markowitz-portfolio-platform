@@ -1,6 +1,8 @@
 CDK_CLI := npx --yes aws-cdk@2.1148.1
 
-.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check synth diff run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer
+TF_ROOTS := infra/bootstrap
+
+.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check synth diff tf-fmt tf-validate tf-lint tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer
 
 install:
 	uv sync
@@ -37,6 +39,16 @@ coverage-core:
 	uv run pytest --cov=src/optimizer/core --cov=src/backtest/core --cov-report=term-missing --cov-fail-under=90
 
 check: format lint typecheck security test-unit test-property test-integration test-infra coverage
+
+tf-fmt:
+	terraform fmt -check -recursive infra
+
+tf-validate:
+	cd infra/bootstrap && terraform init -backend=false && terraform validate
+
+tf-lint:
+	tflint --chdir infra --recursive
+	trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile infra/.trivyignore infra
 
 synth:
 	$(CDK_CLI) synth

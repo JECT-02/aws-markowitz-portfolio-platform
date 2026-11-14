@@ -1,0 +1,8 @@
+# Documented Trivy skips (AGENTS.md section 11.3: every skip needs a written
+# justification; approval recorded in the PR of the branch that adds it).
+
+# AVD-AWS-0132 (bootstrap state bucket): SSE-S3 provides at-rest encryption;
+# a customer-managed KMS key costs ~$1/month against the $1-$5 monthly
+# budget, with no benefit for a private single-account state bucket that
+# only holds Terraform state.
+AVD-AWS-0132

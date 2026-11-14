@@ -13,3 +13,12 @@ build/
 dist/
 cdk.out/
 .DS_Store
+
+# Terraform (AGENTS.md section 11.1: never commit state or plans)
+.terraform/
+*.tfstate
+*.tfstate.backup
+tfplan
+*.tfplan
+tfplan.json
+.terraform.lock.info
