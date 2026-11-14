@@ -12,6 +12,9 @@ module "data" {
 
   project = "portfolio-markowitz-aws"
   env     = var.env
+
+  alpaca_api_key_parameter    = var.alpaca_api_key_parameter
+  alpaca_secret_key_parameter = var.alpaca_secret_key_parameter
 }
 
 module "pipeline" {
@@ -149,6 +152,14 @@ output "notifications_topic_arn" {
 
 output "dlq_arns" {
   value = module.data.dlq_arns
+}
+
+output "alpaca_api_key_parameter_name" {
+  value = module.data.alpaca_api_key_parameter_name
+}
+
+output "alpaca_secret_key_parameter_name" {
+  value = module.data.alpaca_secret_key_parameter_name
 }
 
 output "pipeline_state_machine_arn" {

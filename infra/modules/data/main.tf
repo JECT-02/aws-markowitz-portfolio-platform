@@ -74,6 +74,16 @@ variable "dynamodb_write_capacity" {
   default     = 1
 }
 
+variable "alpaca_api_key_parameter" {
+  type        = string
+  description = "SSM SecureString path holding the Alpaca API key id (placeholder created here, value set by the human)."
+}
+
+variable "alpaca_secret_key_parameter" {
+  type        = string
+  description = "SSM SecureString path holding the Alpaca secret key (placeholder created here, value set by the human)."
+}
+
 # --- Lakehouse buckets ------------------------------------------------------
 
 resource "aws_s3_bucket" "lakehouse" {
@@ -361,4 +371,14 @@ output "notifications_topic_arn" {
 output "dlq_arns" {
   description = "Dead-letter queue ARNs keyed by lambda name."
   value       = { for name, queue in aws_sqs_queue.dlq : name => queue.arn }
+}
+
+output "alpaca_api_key_parameter_name" {
+  description = "SSM SecureString holding the Alpaca API key id."
+  value       = aws_ssm_parameter.alpaca_api_key.name
+}
+
+output "alpaca_secret_key_parameter_name" {
+  description = "SSM SecureString holding the Alpaca secret key."
+  value       = aws_ssm_parameter.alpaca_secret_key.name
 }
