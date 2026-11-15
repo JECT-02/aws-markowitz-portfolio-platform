@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from executor.core.models import BrokerPosition, OrderSide, OrderStatus
+from common.models import BrokerPosition, OrderSide, OrderStatus
 from executor.core.planning import plan_orders
 from executor.core.simulated import SimulatedBroker
 

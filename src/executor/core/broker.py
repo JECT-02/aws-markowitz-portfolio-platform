@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from executor.core.models import BrokerPosition, OrderSide, OrderSnapshot
+from common.models import BrokerPosition, OrderSide, OrderSnapshot
 
 
 class BrokerPort(Protocol):

@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from executor.core.models import BrokerPosition, OrderSide
+from common.models import BrokerPosition, OrderSide
 from executor.core.planning import plan_orders
 
 SETTINGS = settings(max_examples=40, deadline=None)

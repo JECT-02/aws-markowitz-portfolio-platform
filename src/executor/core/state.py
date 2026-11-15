@@ -11,11 +11,11 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from common.errors import StorageError
 from common.logging import get_logger
+from common.models import decimal_string
 from executor.core.models import (
     ExecutionResult,
     IdempotencyClaim,
     ProposalRecord,
-    decimal_string,
 )
 
 logger = get_logger(__name__)

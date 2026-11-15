@@ -2,26 +2,11 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime
-from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-
-class OrderSide(StrEnum):
-    """Direction of a submitted order."""
-
-    BUY = "buy"
-    SELL = "sell"
-
-
-class OrderStatus(StrEnum):
-    """Lifecycle status of a submitted order as reported by the broker."""
-
-    FILLED = "filled"
-    PARTIALLY_FILLED = "partially_filled"
-    REJECTED = "rejected"
-    UNKNOWN = "unknown"
+from common.models import OrderSide, OrderStatus
 
 
 class ProposalStatus(StrEnum):
@@ -32,31 +17,6 @@ class ProposalStatus(StrEnum):
     EXECUTED = "EXECUTED"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
-
-
-class BrokerPosition(BaseModel):
-    """Holding of one symbol as reported by the broker."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
-
-    symbol: str
-    quantity: float
-    price: float
-
-    @field_validator("symbol")
-    @classmethod
-    def _normalize_symbol(cls, value: str) -> str:
-        normalized = value.strip().upper()
-        if not normalized:
-            raise ValueError("symbol must not be empty")
-        return normalized
-
-    @field_validator("quantity", "price")
-    @classmethod
-    def _validate_non_negative(cls, value: float) -> float:
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError("position fields must be finite and non-negative")
-        return value
 
 
 class PlannedOrder(BaseModel):
@@ -121,22 +81,6 @@ class FilledOrder(BaseModel):
     def _validate_non_negative(cls, value: float) -> float:
         if not math.isfinite(value) or value < 0.0:
             raise ValueError("fill quantities must be finite and non-negative")
-        return value
-
-
-class OrderSnapshot(BaseModel):
-    """Broker-reported state of one order at a point in time."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
-
-    status: OrderStatus
-    filled_quantity: float
-
-    @field_validator("filled_quantity")
-    @classmethod
-    def _validate_non_negative(cls, value: float) -> float:
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError("filled quantity must be finite and non-negative")
         return value
 
 
@@ -226,10 +170,3 @@ class IdempotencyClaim(BaseModel):
     status: str
     result: ExecutionResult | None = None
     fresh: bool = False
-
-
-def decimal_string(value: float) -> str:
-    """Serialize a finite float for DynamoDB numeric storage."""
-    if not math.isfinite(value):
-        raise ValueError("value must be finite")
-    return str(Decimal(str(value)))

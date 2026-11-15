@@ -16,14 +16,13 @@ from common.errors import (
     ProposalNotPending,
 )
 from common.logging import get_logger
+from common.models import OrderSnapshot, OrderStatus
 from executor.core.broker import BrokerPort
 from executor.core.drift import check_price_drift
 from executor.core.models import (
     ExecutionResult,
     FilledOrder,
     OrderPlan,
-    OrderSnapshot,
-    OrderStatus,
     PlannedOrder,
     ProposalRecord,
     ProposalStatus,

@@ -123,6 +123,18 @@ run "dlqs_have_four_day_retention_and_encryption" {
   }
 }
 
+run "dlqs_cover_every_pipeline_stage" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for name in ["ingest", "clean", "optimizer", "schedule", "monitor"] :
+      contains(keys(aws_sqs_queue.dlq), name)
+    ])
+    error_message = "Every pipeline stage, including the monitor, must have a DLQ."
+  }
+}
+
 run "email_subscription_is_conditional" {
   command = plan
 

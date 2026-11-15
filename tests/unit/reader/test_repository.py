@@ -10,8 +10,12 @@ from moto import mock_aws
 
 from common.errors import NotFoundError, StorageError
 from common.storage import S3Storage
-from reader.core.models import CurrentState
-from reader.core.repository import DynamoCurrentState, S3GoldRepository
+from reader.core.models import CurrentState, MonitorRecord
+from reader.core.repository import (
+    DynamoCurrentState,
+    DynamoMonitorHistory,
+    S3GoldRepository,
+)
 
 BUCKET = "gold-test"
 TABLE = "PortfolioStateTest"
@@ -111,3 +115,71 @@ def test_malformed_state_raises_storage_error(state_table: DynamoCurrentState) -
     )
     with pytest.raises(StorageError):
         state_table.read_current_state()
+
+
+@pytest.fixture
+def monitor_table() -> Iterator[DynamoMonitorHistory]:
+    with mock_aws():
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        client.create_table(
+            TableName=TABLE,
+            KeySchema=[
+                {"AttributeName": "pk", "KeyType": "HASH"},
+                {"AttributeName": "sk", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        yield DynamoMonitorHistory(TABLE, client)
+
+
+def _put_monitor(timestamp: str) -> None:
+    boto3.client("dynamodb", region_name="us-east-1").put_item(
+        TableName=TABLE,
+        Item={
+            "pk": {"S": "MONITOR"},
+            "sk": {"S": timestamp},
+            "weights_live": {"M": {"SPY": {"N": "0.7"}, "QQQ": {"N": "0.3"}}},
+            "drift_l1": {"N": "0.25"},
+            "rebalance_required": {"BOOL": True},
+            "proposal_id": {"S": "2025-02-03-run-1"},
+            "computed_at": {"S": timestamp},
+            "ttl": {"N": "1800000000"},
+        },
+    )
+
+
+def test_absent_monitor_history_returns_none(monitor_table: DynamoMonitorHistory) -> None:
+    assert monitor_table.read_latest_monitor() is None
+
+
+def test_latest_monitor_is_the_newest_timestamp(
+    monitor_table: DynamoMonitorHistory,
+) -> None:
+    _put_monitor("2025-02-03T15:00:00+00:00")
+    _put_monitor("2025-02-03T15:15:00+00:00")
+    record = monitor_table.read_latest_monitor()
+    assert isinstance(record, MonitorRecord)
+    assert record.computed_at == "2025-02-03T15:15:00+00:00"
+    assert record.weights_live == {"SPY": 0.7, "QQQ": 0.3}
+    assert record.drift_l1 == pytest.approx(0.25)
+    assert record.rebalance_required is True
+    assert record.proposal_id == "2025-02-03-run-1"
+
+
+def test_malformed_monitor_record_raises_storage_error(
+    monitor_table: DynamoMonitorHistory,
+) -> None:
+    boto3.client("dynamodb", region_name="us-east-1").put_item(
+        TableName=TABLE,
+        Item={
+            "pk": {"S": "MONITOR"},
+            "sk": {"S": "2025-02-03T15:00:00+00:00"},
+            "weights_live": {"M": {"SPY": {"N": "0.7"}}},
+        },
+    )
+    with pytest.raises(StorageError):
+        monitor_table.read_latest_monitor()

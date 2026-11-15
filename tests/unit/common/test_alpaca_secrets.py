@@ -4,8 +4,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from common.adapters.secrets import load_alpaca_credentials
 from common.errors import SecretError
-from executor.adapters.secrets import load_alpaca_credentials
 
 API_KEY_PARAMETER = "/portfolio-markowitz/dev/alpaca/api-key"
 SECRET_KEY_PARAMETER = "/portfolio-markowitz/dev/alpaca/secret-key"

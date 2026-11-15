@@ -3,7 +3,8 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from executor.core.models import BrokerPosition, OrderPlan, OrderSide, PlannedOrder
+from common.models import BrokerPosition, OrderSide
+from executor.core.models import OrderPlan, PlannedOrder
 
 _DUST_REASON = "dust"
 _NO_PRICE_REASON = "no_price"
