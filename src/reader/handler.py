@@ -17,7 +17,13 @@ from common.logging import configure_logging, get_logger
 from common.storage import S3Storage
 from optimizer.core.models import PortfolioMetrics, Proposal
 from reader.core.models import MonitorSnapshot
-from reader.core.repository import DynamoCurrentState, S3GoldRepository, StateReader
+from reader.core.repository import (
+    DynamoCurrentState,
+    DynamoMonitorHistory,
+    MonitorHistory,
+    S3GoldRepository,
+    StateReader,
+)
 from reader.core.service import ReaderService
 
 logger = get_logger(__name__)
@@ -98,6 +104,7 @@ def build_dependencies() -> ReaderDependencies:
     service = ReaderService(
         gold=S3GoldRepository(storage, storage_settings.gold_bucket),
         state=_build_state(runtime),
+        monitor_history=_build_monitor_history(runtime),
     )
     return ReaderDependencies(service=service)
 
@@ -108,6 +115,13 @@ def _build_state(runtime: RuntimeSettings) -> StateReader | None:
         logger.warning("STATE_TABLE not set, monitor will fall back to proposal weights")
         return None
     return DynamoCurrentState(table_name.strip(), region_name=runtime.aws_region)
+
+
+def _build_monitor_history(runtime: RuntimeSettings) -> MonitorHistory | None:
+    table_name = os.environ.get("STATE_TABLE")
+    if table_name is None or not table_name.strip():
+        return None
+    return DynamoMonitorHistory(table_name.strip(), region_name=runtime.aws_region)
 
 
 def _jsonable(value: Any) -> Any:

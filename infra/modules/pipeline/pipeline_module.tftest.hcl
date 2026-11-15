@@ -22,6 +22,7 @@ variables {
     clean     = "arn:aws:sqs:us-east-1:123456789012:portfolio-markowitz-aws-dev-clean-dlq"
     optimizer = "arn:aws:sqs:us-east-1:123456789012:portfolio-markowitz-aws-dev-optimizer-dlq"
     schedule  = "arn:aws:sqs:us-east-1:123456789012:portfolio-markowitz-aws-dev-schedule-dlq"
+    monitor   = "arn:aws:sqs:us-east-1:123456789012:portfolio-markowitz-aws-dev-monitor-dlq"
   }
   alpaca_api_key_parameter    = "/portfolio-markowitz/dev/alpaca/api-key"
   alpaca_secret_key_parameter = "/portfolio-markowitz/dev/alpaca/secret-key"
@@ -154,5 +155,78 @@ run "ingest_reads_alpaca_credentials" {
   assert {
     condition     = contains(flatten([for st in local.permission_policies.ingest.Statement : st.Action]), "ssm:GetParameter")
     error_message = "Ingest must read the Alpaca credentials from SSM."
+  }
+}
+
+run "monitor_is_a_bounded_container_image" {
+  command = plan
+
+  assert {
+    condition     = aws_lambda_function.pipeline["monitor"].package_type == "Image"
+    error_message = "The monitor ships as a container image."
+  }
+
+  assert {
+    condition     = aws_lambda_function.pipeline["monitor"].memory_size == 512 && aws_lambda_function.pipeline["monitor"].timeout == 60
+    error_message = "The monitor runs with 512 MB and a 60s timeout."
+  }
+}
+
+run "monitor_paper_mode_is_forced" {
+  command = plan
+
+  assert {
+    condition     = aws_lambda_function.pipeline["monitor"].environment[0].variables.ALPACA_PAPER == "true"
+    error_message = "ALPACA_PAPER must be the immutable literal 'true' (AGENTS.md section 6.6)."
+  }
+}
+
+run "monitor_iam_is_least_privilege" {
+  command = plan
+
+  assert {
+    condition = alltrue(flatten([
+      for st in local.permission_policies.monitor.Statement : [for a in st.Action : a != "*"]
+    ]))
+    error_message = "The monitor policy must not use wildcard actions."
+  }
+
+  assert {
+    condition     = contains(flatten([for st in local.permission_policies.monitor.Statement : st.Action]), "dynamodb:PutItem")
+    error_message = "The monitor may only append MONITOR records."
+  }
+
+  assert {
+    condition     = length([for st in local.permission_policies.monitor.Statement : st.Action if contains(st.Action, "dynamodb:GetItem")]) == 0
+    error_message = "The monitor must not read proposal or state items."
+  }
+
+  assert {
+    condition     = length([for st in local.permission_policies.monitor.Statement : st.Action if contains(st.Action, "s3:PutObject")]) == 0
+    error_message = "The monitor must not write to the lakehouse."
+  }
+}
+
+run "monitor_schedule_uses_the_15_minute_ny_cron" {
+  command = plan
+
+  assert {
+    condition     = aws_scheduler_schedule.monitor.schedule_expression == "cron(0/15 9-16 ? * MON-FRI *)"
+    error_message = "The fast loop must fire every 15 minutes on market weekdays."
+  }
+
+  assert {
+    condition     = aws_scheduler_schedule.monitor.schedule_expression_timezone == "America/New_York"
+    error_message = "The schedule must pin America/New_York (AGENTS.md section 11.2)."
+  }
+
+  assert {
+    condition     = aws_scheduler_schedule.monitor.target[0].retry_policy[0].maximum_retry_attempts == 0
+    error_message = "Schedule retries must be disabled; failures land in the monitor DLQ."
+  }
+
+  assert {
+    condition     = contains(flatten([for t in aws_scheduler_schedule.monitor.target : [for d in t.dead_letter_config : d.arn]]), var.dlq_arns["monitor"])
+    error_message = "Schedule failures must land in the monitor DLQ."
   }
 }

@@ -8,7 +8,7 @@ import pytest
 from common.errors import DataValidationError, NotFoundError
 from common.models import DataSource, RunMetadata
 from optimizer.core.models import PortfolioMetrics, Proposal
-from reader.core.models import CurrentState, MonitorSnapshot
+from reader.core.models import CurrentState, MonitorRecord, MonitorSnapshot
 from reader.core.service import ReaderService
 
 
@@ -152,6 +152,62 @@ def test_monitor_without_state_reader_uses_proposal_weights() -> None:
     snapshot = service.get_monitor()
     assert snapshot.weights == {"SPY": 0.5, "QQQ": 0.5}
     assert snapshot.reconciled_at is None
+
+
+class _MonitorHistory:
+    def __init__(self, record: MonitorRecord | None) -> None:
+        self.record = record
+        self.reads = 0
+
+    def read_latest_monitor(self) -> MonitorRecord | None:
+        self.reads += 1
+        return self.record
+
+
+def test_monitor_attaches_the_latest_fast_loop_record() -> None:
+    record = MonitorRecord(
+        weights_live={"SPY": 0.8, "QQQ": 0.2},
+        drift_l1=0.6,
+        rebalance_required=True,
+        proposal_id="2025-02-03-run-1",
+        computed_at="2025-02-04T15:30:00+00:00",
+    )
+    gold = _Gold({"latest.json": _proposal_document()})
+    history = _MonitorHistory(record)
+    service = ReaderService(gold, None, history)
+    snapshot = service.get_monitor()
+    assert snapshot.live_weights == {"SPY": 0.8, "QQQ": 0.2}
+    assert snapshot.live_drift_l1 == pytest.approx(0.6)
+    assert snapshot.rebalance_required is True
+    assert snapshot.monitor_updated_at == "2025-02-04T15:30:00+00:00"
+    # The proposal-level drift stays untouched: both measures coexist.
+    assert snapshot.drift_l1 == 0.2
+
+
+def test_monitor_record_from_an_older_proposal_is_ignored() -> None:
+    record = MonitorRecord(
+        weights_live={"SPY": 0.8, "QQQ": 0.2},
+        drift_l1=0.6,
+        rebalance_required=True,
+        proposal_id="2025-02-02-run-0",
+        computed_at="2025-02-03T15:30:00+00:00",
+    )
+    gold = _Gold({"latest.json": _proposal_document()})
+    history = _MonitorHistory(record)
+    service = ReaderService(gold, None, history)
+    snapshot = service.get_monitor()
+    assert snapshot.live_weights is None
+    assert snapshot.live_drift_l1 is None
+    assert snapshot.monitor_updated_at is None
+
+
+def test_monitor_without_history_records_keeps_the_base_view() -> None:
+    gold = _Gold({"latest.json": _proposal_document()})
+    history = _MonitorHistory(None)
+    service = ReaderService(gold, None, history)
+    snapshot = service.get_monitor()
+    assert snapshot.live_weights is None
+    assert history.reads == 1
 
 
 def test_backtest_is_not_available_yet() -> None:

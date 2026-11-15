@@ -250,7 +250,7 @@ resource "aws_iam_role_policy" "reader_permissions" {
       {
         Sid      = "StateTableRead"
         Effect   = "Allow"
-        Action   = "dynamodb:GetItem"
+        Action   = ["dynamodb:GetItem", "dynamodb:Query"]
         Resource = [var.state_table_arn]
       },
     ]

@@ -228,10 +228,17 @@ data "aws_iam_policy_document" "scheduler" {
   }
 
   statement {
+    sid       = "InvokeMonitorLambda"
+    effect    = "Allow"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.pipeline["monitor"].arn]
+  }
+
+  statement {
     sid       = "SendScheduleDeadLetters"
     effect    = "Allow"
     actions   = ["sqs:SendMessage"]
-    resources = [var.dlq_arns["schedule"]]
+    resources = [var.dlq_arns["schedule"], var.dlq_arns["monitor"]]
   }
 }
 
@@ -264,6 +271,38 @@ resource "aws_scheduler_schedule" "daily" {
     retry_policy {
       maximum_retry_attempts       = 3
       maximum_event_age_in_seconds = 3600
+    }
+  }
+}
+
+# --- Fast-loop EventBridge Scheduler (monitor) ----------------------------------
+#
+# The cron covers the regular session plus the half-hour margins the
+# granularity allows; the handler checks the Alpaca clock and skips runs with
+# a closed market, so no writes happen outside trading hours.
+
+resource "aws_scheduler_schedule" "monitor" {
+  name        = "${var.project}-monitor-${var.env}"
+  description = "Live drift sampling every 15 minutes with an open market"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression          = "cron(0/15 9-16 ? * MON-FRI *)"
+  schedule_expression_timezone = local.schedule_timezone
+
+  target {
+    arn      = aws_lambda_function.pipeline["monitor"].arn
+    role_arn = aws_iam_role.scheduler.arn
+
+    dead_letter_config {
+      arn = var.dlq_arns["monitor"]
+    }
+
+    retry_policy {
+      maximum_retry_attempts       = 0
+      maximum_event_age_in_seconds = 900
     }
   }
 }

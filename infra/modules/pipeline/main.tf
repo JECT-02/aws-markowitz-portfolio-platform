@@ -71,6 +71,12 @@ locals {
       timeout     = 600
       memory      = 2048
     }
+    monitor = {
+      description = "15-minute live drift monitor"
+      cmd         = ["monitor.handler.handler"]
+      timeout     = 60
+      memory      = 512
+    }
   }
 
   tags = {
@@ -332,6 +338,36 @@ locals {
         },
       ]
     }
+    monitor = {
+      Statement = [
+        {
+          Sid    = "GoldRead"
+          Effect = "Allow"
+          Action = ["s3:GetObject", "s3:ListBucket"]
+          Resource = [
+            var.gold_bucket_arn,
+            "${var.gold_bucket_arn}/*",
+          ]
+        },
+        {
+          # The fast loop only observes: it appends MONITOR records and never
+          # reads or rewrites proposal state.
+          Sid      = "StateTableMonitorWrite"
+          Effect   = "Allow"
+          Action   = ["dynamodb:PutItem"]
+          Resource = [var.state_table_arn]
+        },
+        {
+          Sid    = "ReadAlpacaCredentials"
+          Effect = "Allow"
+          Action = ["ssm:GetParameter"]
+          Resource = [
+            "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${var.alpaca_api_key_parameter}",
+            "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${var.alpaca_secret_key_parameter}",
+          ]
+        },
+      ]
+    }
   }
 }
 
@@ -435,6 +471,16 @@ resource "aws_lambda_function" "pipeline" {
         SILVER_BUCKET = var.silver_bucket_name
         GOLD_BUCKET   = var.gold_bucket_name
         STATE_TABLE   = var.state_table_name
+      } : {},
+      each.key == "monitor" ? {
+        BRONZE_BUCKET               = var.bronze_bucket_name
+        QUARANTINE_BUCKET           = var.quarantine_bucket_name
+        SILVER_BUCKET               = var.silver_bucket_name
+        GOLD_BUCKET                 = var.gold_bucket_name
+        STATE_TABLE                 = var.state_table_name
+        ALPACA_PAPER                = "true"
+        ALPACA_API_KEY_PARAMETER    = var.alpaca_api_key_parameter
+        ALPACA_SECRET_KEY_PARAMETER = var.alpaca_secret_key_parameter
       } : {},
       local.strategy_environment,
     )
