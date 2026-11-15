@@ -146,9 +146,7 @@ def _deps(
 def _gold_keys() -> list[str]:
     paginator = boto3.client("s3", region_name="us-east-1").get_paginator("list_objects_v2")
     return [
-        item["Key"]
-        for page in paginator.paginate(Bucket=GOLD)
-        for item in page.get("Contents", [])
+        item["Key"] for page in paginator.paginate(Bucket=GOLD) for item in page.get("Contents", [])
     ]
 
 
