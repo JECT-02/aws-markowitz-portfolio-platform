@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from executor.core.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
+from common.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
 
 
 @dataclass(frozen=True)

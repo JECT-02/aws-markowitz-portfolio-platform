@@ -16,9 +16,10 @@ from common.errors import (
     ProposalExpired,
     ProposalNotPending,
 )
+from common.models import BrokerPosition
 from common.storage import S3Storage
 from executor.core.execution import RebalanceService
-from executor.core.models import BrokerPosition, ProposalStatus
+from executor.core.models import ProposalStatus
 from executor.core.prices import GoldPricesRepository
 from executor.core.simulated import SimulatedBroker
 from executor.core.state import DynamoExecutionState

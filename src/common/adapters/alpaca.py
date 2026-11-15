@@ -15,7 +15,7 @@ from alpaca.trading.enums import OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
 from common.errors import BrokerError, ConfigurationError
-from executor.core.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
+from common.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
 
 _PAPER_TRADING_URL = BaseURL.TRADING_PAPER.value
 
