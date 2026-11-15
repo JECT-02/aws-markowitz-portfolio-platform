@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, NoReturn, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -16,7 +16,7 @@ from common.errors import ConfigurationError, DataValidationError, NotFoundError
 from common.logging import configure_logging, get_logger
 from common.storage import S3Storage
 from optimizer.core.models import PortfolioMetrics, Proposal
-from reader.core.models import MonitorSnapshot
+from reader.core.models import BacktestReport, MonitorSnapshot
 from reader.core.repository import (
     DynamoCurrentState,
     DynamoMonitorHistory,
@@ -49,7 +49,7 @@ class ReaderRunner(Protocol):
 
     def get_monitor(self) -> MonitorSnapshot: ...
 
-    def get_backtest(self) -> NoReturn: ...
+    def get_backtest(self) -> BacktestReport: ...
 
 
 def handler(event: Mapping[str, Any], _context: object | None = None) -> dict[str, Any]:
@@ -77,7 +77,7 @@ def run_reader(event: Mapping[str, Any], deps: ReaderDependencies) -> dict[str, 
         elif route == _MONITOR_ROUTE:
             payload = deps.service.get_monitor()
         elif route == _BACKTEST_ROUTE:
-            deps.service.get_backtest()
+            payload = deps.service.get_backtest()
         else:
             raise NotFoundError(f"no route for {route}")
     except NotFoundError as exc:

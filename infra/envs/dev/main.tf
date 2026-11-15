@@ -46,6 +46,24 @@ module "pipeline" {
   dlq_arns                = module.data.dlq_arns
 }
 
+module "backtest" {
+  source = "../../modules/backtest"
+
+  project      = "portfolio-markowitz-aws"
+  env          = var.env
+  image_tag    = var.optimizer_image_tag
+  code_version = var.code_version
+
+  strategy = local.strategy_values
+
+  silver_bucket_name = module.data.silver_bucket_name
+  silver_bucket_arn  = module.data.silver_bucket_arn
+  gold_bucket_name   = module.data.gold_bucket_name
+  gold_bucket_arn    = module.data.gold_bucket_arn
+
+  dlq_arn = module.data.dlq_arns["backtest"]
+}
+
 module "api" {
   source = "../../modules/api"
 
@@ -177,6 +195,14 @@ output "pipeline_function_arns" {
 
 output "pipeline_ecr_repository_uris" {
   value = module.pipeline.ecr_repository_uris
+}
+
+output "backtest_function_arn" {
+  value = module.backtest.function_arn
+}
+
+output "backtest_ecr_repository_uri" {
+  value = module.backtest.ecr_repository_uri
 }
 
 output "api_endpoint" {

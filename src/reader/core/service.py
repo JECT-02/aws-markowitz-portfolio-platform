@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import NoReturn
 
 from pydantic import ValidationError
 
-from common.errors import DataValidationError, NotFoundError
+from common.errors import DataValidationError
 from optimizer.core.models import PortfolioMetrics, Proposal
-from reader.core.models import MonitorSnapshot
+from reader.core.models import BacktestReport, MonitorSnapshot
 from reader.core.repository import GoldRepository, MonitorHistory, StateReader
 
 
@@ -69,9 +68,13 @@ class ReaderService:
                 )
         return snapshot
 
-    def get_backtest(self) -> NoReturn:
-        """Backtests are produced by the weekly loop in phase 6; nothing exists yet."""
-        raise NotFoundError("backtest results are not available until phase 6")
+    def get_backtest(self) -> BacktestReport:
+        """Return the latest weekly backtest report."""
+        document = self._gold.load_backtest()
+        try:
+            return BacktestReport.model_validate(document)
+        except ValidationError as exc:
+            raise DataValidationError("stored backtest report is invalid") from exc
 
 
 def _document_key(run_date: date | None) -> str:
