@@ -1,6 +1,6 @@
 ENV ?= dev
 
-.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer build-monitor
+.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer build-monitor build-backtest
 
 install:
 	uv sync
@@ -80,7 +80,10 @@ build-optimizer:
 build-executor:
 	docker build -f src/executor/Dockerfile -t portfolio-markowitz-executor .
 
-build-images: build-ingest build-clean build-optimizer build-reader build-executor build-monitor
+build-images: build-ingest build-clean build-optimizer build-reader build-executor build-monitor build-backtest
+
+build-backtest:
+	docker build -f src/backtest/Dockerfile -t portfolio-markowitz-backtest .
 
 build-monitor:
 	docker build -f src/monitor/Dockerfile -t portfolio-markowitz-monitor .

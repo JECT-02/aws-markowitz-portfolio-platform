@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+from backtest.core.artifacts import S3BacktestWriter
+from backtest.core.models import BacktestReport
+from backtest.core.validation import TemporalValidation, ValidationResult
+from common.clock import Clock, SystemClock
+from common.config import (
+    RuntimeSettings,
+    StorageSettings,
+    StrategyConfig,
+    UniverseConfig,
+    load_universe_config,
+)
+from common.env import load_env_file
+from common.events import resolve_run_date, resolve_run_id
+from common.logging import configure_logging, get_logger
+from common.models import DataSource, RunMetadata
+from common.storage import S3Storage
+from optimizer.core.repository import ReturnsMatrix, SilverReturnsRepository
+
+logger = get_logger(__name__)
+
+
+class BacktestData(Protocol):
+    """Loads aligned silver log returns."""
+
+    def load(
+        self,
+        symbols: list[str],
+        window_days: int,
+        max_days: int | None = None,
+    ) -> ReturnsMatrix: ...
+
+
+class BacktestValidation(Protocol):
+    """Runs the nested temporal validation."""
+
+    def run(self, matrix: ReturnsMatrix) -> ValidationResult: ...
+
+
+@dataclass(frozen=True)
+class BacktestDependencies:
+    repository: BacktestData
+    validation: BacktestValidation
+    writer: S3BacktestWriter
+    universe: UniverseConfig
+    strategy: StrategyConfig
+    code_version: str
+    clock: Clock
+
+
+def run_backtest(
+    event: Mapping[str, object],
+    deps: BacktestDependencies,
+) -> dict[str, object]:
+    """Run the weekly temporal validation and persist the gold report."""
+    metadata = RunMetadata(
+        run_id=resolve_run_id(event),
+        run_date=resolve_run_date(event, deps.clock),
+        code_version=deps.code_version,
+        source=DataSource.ALPACA,
+        fetched_at=deps.clock.now(),
+    )
+    required_history = max(
+        max(deps.strategy.validation_windows) * 2,
+        deps.strategy.window_days,
+    )
+    matrix = deps.repository.load(
+        deps.universe.tickers,
+        window_days=required_history,
+        max_days=deps.strategy.ingest_lookback_days,
+    )
+    result = deps.validation.run(matrix)
+    report = BacktestReport.from_validation_result(result, metadata, deps.clock.now())
+    deps.writer.write(report)
+    logger.info(
+        "weekly backtest completed",
+        extra={
+            "run_id": metadata.run_id,
+            "run_date": metadata.run_date.isoformat(),
+            "selected_window_days": report.selected.window_days,
+            "candidate_count": len(report.candidates),
+        },
+    )
+    return _response(report)
+
+
+def handler(event: Mapping[str, object], _context: object | None = None) -> dict[str, object]:
+    """AWS Lambda entry point for the weekly backtest."""
+    load_env_file(Path(".env"))
+    configure_logging()
+    return run_backtest(event, build_dependencies())
+
+
+def build_dependencies() -> BacktestDependencies:
+    runtime = RuntimeSettings.from_environment()
+    storage_settings = StorageSettings.from_environment()
+    universe = load_universe_config(runtime.config_dir / "universe.yaml")
+    strategy = StrategyConfig.from_environment()
+    storage = S3Storage(region_name=runtime.aws_region)
+    return BacktestDependencies(
+        repository=SilverReturnsRepository(storage, storage_settings.silver_bucket),
+        validation=TemporalValidation(universe, strategy),
+        writer=S3BacktestWriter(storage, storage_settings.gold_bucket),
+        universe=universe,
+        strategy=strategy,
+        code_version=runtime.code_version,
+        clock=SystemClock(),
+    )
+
+
+def _response(report: BacktestReport) -> dict[str, object]:
+    return {
+        "run_id": report.metadata.run_id,
+        "run_date": report.metadata.run_date.isoformat(),
+        "code_version": report.metadata.code_version,
+        "selected": {
+            "gamma": report.selected.gamma,
+            "transaction_cost_lambda": report.selected.transaction_cost_lambda,
+            "alpha": report.selected.alpha,
+            "window_days": report.selected.window_days,
+            "validation_sharpe": report.selected.validation_sharpe,
+        },
+        "out_of_sample": {
+            mode: metrics.model_dump() for mode, metrics in report.out_of_sample.items()
+        },
+    }
