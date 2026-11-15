@@ -57,6 +57,12 @@ variable "spa_allowed_origin" {
   default     = ""
 }
 
+variable "looker_connector_callback_urls" {
+  type        = list(string)
+  description = "HTTPS Apps Script /usercallback URLs of the deployed Looker Studio connector; empty keeps its OAuth flows disabled."
+  default     = []
+}
+
 variable "bronze_bucket_name" {
   type        = string
   description = "Bronze bucket name (exposed to the Reader for error context)."
@@ -149,6 +155,31 @@ resource "aws_cognito_user_pool_client" "spa" {
   callback_urls                        = var.spa_allowed_origin != "" ? [var.spa_allowed_origin] : null
   logout_urls                          = var.spa_allowed_origin != "" ? [var.spa_allowed_origin] : null
   supported_identity_providers         = var.spa_allowed_origin != "" ? ["COGNITO"] : null
+
+  prevent_user_existence_errors = "ENABLED"
+}
+
+resource "aws_cognito_user_pool_client" "looker_connector" {
+  name            = "${var.project}-looker-connector-${var.env}"
+  user_pool_id    = aws_cognito_user_pool.users.id
+  generate_secret = true
+  explicit_auth_flows = [
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
+  # Authorization code grant (confidential client, no PKCE) for the Looker
+  # Studio community connector. The callback URL is the Apps Script
+  # /usercallback endpoint of the deployed connector script; it is unknown
+  # until the connector is deployed, so the variable ships empty and the
+  # OAuth configuration is enabled once it is filled in.
+  allowed_oauth_flows_user_pool_client = length(var.looker_connector_callback_urls) > 0
+  allowed_oauth_flows                  = length(var.looker_connector_callback_urls) > 0 ? ["code"] : null
+  allowed_oauth_scopes                 = length(var.looker_connector_callback_urls) > 0 ? ["openid", "email", "profile"] : null
+  callback_urls                        = length(var.looker_connector_callback_urls) > 0 ? var.looker_connector_callback_urls : null
+  supported_identity_providers         = length(var.looker_connector_callback_urls) > 0 ? ["COGNITO"] : null
+
+  # BI refresh cadence: one re-login per quarter at most.
+  refresh_token_validity = 90
 
   prevent_user_existence_errors = "ENABLED"
 }
@@ -320,7 +351,8 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
   name             = "cognito"
 
   jwt_configuration {
-    audience = [aws_cognito_user_pool_client.spa.id]
+    # The SPA and the Looker Studio connector share the same read-only API.
+    audience = [aws_cognito_user_pool_client.spa.id, aws_cognito_user_pool_client.looker_connector.id]
     issuer   = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${aws_cognito_user_pool.users.id}"
   }
 }
@@ -386,6 +418,17 @@ output "web_client_id" {
 output "cognito_domain" {
   description = "Cognito hosted UI domain."
   value       = aws_cognito_user_pool_domain.spa.domain
+}
+
+output "looker_connector_client_id" {
+  description = "Cognito app client id for the Looker Studio connector."
+  value       = aws_cognito_user_pool_client.looker_connector.id
+}
+
+output "looker_connector_client_secret" {
+  description = "Cognito app client secret for the Looker Studio connector (retrieve with `terraform output`)."
+  value       = aws_cognito_user_pool_client.looker_connector.client_secret
+  sensitive   = true
 }
 
 output "reader_function_name" {

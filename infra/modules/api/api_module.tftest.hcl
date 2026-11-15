@@ -131,6 +131,29 @@ run "spa_client_has_pkce_code_flow_when_origin_configured" {
   }
 }
 
+run "looker_connector_client_is_a_confidential_code_flow_client" {
+  command = plan
+
+  assert {
+    condition     = aws_cognito_user_pool_client.looker_connector.generate_secret
+    error_message = "The Looker Studio connector must be a confidential client with a secret."
+  }
+
+  assert {
+    condition     = length(var.looker_connector_callback_urls) == 0 ? aws_cognito_user_pool_client.looker_connector.allowed_oauth_flows_user_pool_client == false : contains(aws_cognito_user_pool_client.looker_connector.allowed_oauth_flows, "code")
+    error_message = "The connector OAuth flows stay disabled until callback URLs are registered."
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool_client.looker_connector.refresh_token_validity == 90
+    error_message = "The connector refresh token must be capped at 90 days."
+  }
+}
+
+# The JWT authorizer audience composition ([spa.id, looker_connector.id]) and
+# resource ids stay unknown under the mock provider, exactly like the state
+# machine ASL; the composition is static HCL and is reviewed in the plan.
+
 run "cors_is_restricted_to_the_spa_origin" {
   command = plan
 

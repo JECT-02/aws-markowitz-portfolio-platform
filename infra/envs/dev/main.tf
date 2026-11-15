@@ -74,6 +74,8 @@ module "api" {
 
   spa_allowed_origin = var.spa_allowed_origin
 
+  looker_connector_callback_urls = var.looker_connector_callback_urls
+
   bronze_bucket_name     = module.data.bronze_bucket_name
   quarantine_bucket_name = module.data.quarantine_bucket_name
   silver_bucket_name     = module.data.silver_bucket_name
@@ -143,6 +145,12 @@ variable "spa_allowed_origin" {
   type        = string
   description = "HTTPS origin of the SPA (configures OAuth/CORS); empty disables them."
   default     = ""
+}
+
+variable "looker_connector_callback_urls" {
+  type        = list(string)
+  description = "Apps Script /usercallback URLs of the deployed Looker Studio connector; empty keeps its OAuth flows disabled."
+  default     = []
 }
 
 output "bronze_bucket_name" {
@@ -219,6 +227,15 @@ output "web_client_id" {
 
 output "cognito_domain" {
   value = module.api.cognito_domain
+}
+
+output "looker_connector_client_id" {
+  value = module.api.looker_connector_client_id
+}
+
+output "looker_connector_client_secret" {
+  value     = module.api.looker_connector_client_secret
+  sensitive = true
 }
 
 output "reader_function_name" {
