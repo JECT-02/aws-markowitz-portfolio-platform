@@ -31,6 +31,7 @@ test-infra:
 	uv run pytest tests/infra
 	cd infra/modules/data && terraform test
 	cd infra/modules/pipeline && terraform test
+	cd infra/modules/backtest && terraform test
 	cd infra/modules/api && terraform test
 	cd infra/modules/web && terraform test
 
@@ -56,6 +57,7 @@ tf-lint:
 tf-test:
 	cd infra/modules/data && terraform test
 	cd infra/modules/pipeline && terraform test
+	cd infra/modules/backtest && terraform test
 	cd infra/modules/api && terraform test
 	cd infra/modules/web && terraform test
 

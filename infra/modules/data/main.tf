@@ -37,7 +37,7 @@ locals {
     }
   }
 
-  dlq_names = ["ingest", "clean", "optimizer", "schedule", "monitor"]
+  dlq_names = ["ingest", "clean", "optimizer", "schedule", "monitor", "backtest"]
 }
 
 variable "project" {

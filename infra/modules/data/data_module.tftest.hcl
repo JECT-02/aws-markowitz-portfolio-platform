@@ -128,10 +128,10 @@ run "dlqs_cover_every_pipeline_stage" {
 
   assert {
     condition = alltrue([
-      for name in ["ingest", "clean", "optimizer", "schedule", "monitor"] :
+      for name in ["ingest", "clean", "optimizer", "schedule", "monitor", "backtest"] :
       contains(keys(aws_sqs_queue.dlq), name)
     ])
-    error_message = "Every pipeline stage, including the monitor, must have a DLQ."
+    error_message = "Every pipeline stage, including the monitor and the weekly backtest, must have a DLQ."
   }
 }
 
