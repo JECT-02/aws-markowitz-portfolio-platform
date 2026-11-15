@@ -11,6 +11,7 @@ from common.storage import ObjectStorage
 from reader.core.models import CurrentState, MonitorRecord
 
 LATEST_KEY = "latest.json"
+_BACKTEST_LATEST_KEY = "backtest_latest.json"
 _PROPOSAL_KEY_TEMPLATE = "run_date={run_date}/proposal.json"
 _MONITOR_PARTITION = "MONITOR"
 
@@ -19,6 +20,8 @@ class GoldRepository(Protocol):
     """Loads the raw proposal documents stored in the gold layer."""
 
     def load_proposal(self, run_date: date | None) -> dict[str, Any]: ...
+
+    def load_backtest(self) -> dict[str, Any]: ...
 
 
 class StateReader(Protocol):
@@ -48,6 +51,16 @@ class S3GoldRepository:
             return self._storage.read_json(self._bucket, key)
         except StorageError as exc:
             raise StorageError(f"failed to read proposal {key}") from exc
+
+    def load_backtest(self) -> dict[str, Any]:
+        """Load the weekly backtest report pointer artifact."""
+        key = _BACKTEST_LATEST_KEY
+        if not self._storage.exists(self._bucket, key):
+            raise NotFoundError(f"backtest report not found for {key}")
+        try:
+            return self._storage.read_json(self._bucket, key)
+        except StorageError as exc:
+            raise StorageError(f"failed to read backtest report {key}") from exc
 
 
 class DynamoCurrentState:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import boto3
 import pytest
@@ -183,3 +184,23 @@ def test_malformed_monitor_record_raises_storage_error(
     )
     with pytest.raises(StorageError):
         monitor_table.read_latest_monitor()
+
+
+def test_backtest_report_is_loaded(gold: S3GoldRepository) -> None:
+    fixture = Path(__file__).resolve().parents[2] / "fixtures" / "backtest_report.json"
+    _put(BUCKET, "backtest_latest.json", json.loads(fixture.read_text(encoding="utf-8")))
+    document = gold.load_backtest()
+    assert document["metadata"]["run_id"] == "run-1"
+
+
+def test_missing_backtest_raises_not_found(gold: S3GoldRepository) -> None:
+    with pytest.raises(NotFoundError):
+        gold.load_backtest()
+
+
+def test_backtest_with_invalid_json_raises_storage_error(gold: S3GoldRepository) -> None:
+    boto3.client("s3", region_name="us-east-1").put_object(
+        Bucket=BUCKET, Key="backtest_latest.json", Body=b"{not-json"
+    )
+    with pytest.raises(StorageError):
+        gold.load_backtest()

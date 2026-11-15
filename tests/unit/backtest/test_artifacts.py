@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import boto3
 import pytest
@@ -139,6 +140,12 @@ def test_report_rejects_non_finite_metrics() -> None:
             sharpe_ratio=1.0,
             max_drawdown=-0.15,
         )
+
+
+def test_report_matches_the_shared_gold_fixture() -> None:
+    """Pin the artifact schema: the reader validates exactly this payload."""
+    fixture = Path(__file__).resolve().parents[2] / "fixtures" / "backtest_report.json"
+    assert _report().model_dump(mode="json") == json.loads(fixture.read_text(encoding="utf-8"))
 
 
 @pytest.fixture

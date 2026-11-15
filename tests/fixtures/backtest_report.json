@@ -1,0 +1,127 @@
+{
+  "candidates": [
+    {
+      "alpha": 0.5,
+      "fold_metrics": [
+        {
+          "annualized_return": 0.08,
+          "annualized_volatility": 0.12,
+          "max_drawdown": -0.15,
+          "sharpe_ratio": 0.7
+        },
+        {
+          "annualized_return": 0.08,
+          "annualized_volatility": 0.12,
+          "max_drawdown": -0.15,
+          "sharpe_ratio": 0.8
+        }
+      ],
+      "gamma": 4.0,
+      "transaction_cost_lambda": 0.001,
+      "validation_sharpe": 0.8,
+      "window_days": 126
+    },
+    {
+      "alpha": 0.5,
+      "fold_metrics": [
+        {
+          "annualized_return": 0.08,
+          "annualized_volatility": 0.12,
+          "max_drawdown": -0.15,
+          "sharpe_ratio": 0.7
+        },
+        {
+          "annualized_return": 0.08,
+          "annualized_volatility": 0.12,
+          "max_drawdown": -0.15,
+          "sharpe_ratio": 0.6
+        }
+      ],
+      "gamma": 8.0,
+      "transaction_cost_lambda": 0.001,
+      "validation_sharpe": 0.6,
+      "window_days": 63
+    }
+  ],
+  "comparison": [
+    {
+      "in_sample_sharpe": 1.1,
+      "mode": "optimizer",
+      "out_of_sample_annualized_return": 0.08,
+      "out_of_sample_max_drawdown": -0.15,
+      "out_of_sample_sharpe": 0.8
+    },
+    {
+      "in_sample_sharpe": 0.9,
+      "mode": "spy",
+      "out_of_sample_annualized_return": null,
+      "out_of_sample_max_drawdown": null,
+      "out_of_sample_sharpe": null
+    }
+  ],
+  "generated_at": "2026-02-07T13:00:00Z",
+  "in_sample": {
+    "optimizer": {
+      "annualized_return": 0.08,
+      "annualized_volatility": 0.12,
+      "max_drawdown": -0.15,
+      "sharpe_ratio": 1.1
+    },
+    "spy": {
+      "annualized_return": 0.08,
+      "annualized_volatility": 0.12,
+      "max_drawdown": -0.15,
+      "sharpe_ratio": 0.9
+    }
+  },
+  "metadata": {
+    "code_version": "abc123",
+    "fetched_at": "2026-02-07T13:00:00Z",
+    "run_date": "2026-02-07",
+    "run_id": "run-1",
+    "source": "alpaca"
+  },
+  "out_of_sample": {
+    "optimizer": {
+      "annualized_return": 0.08,
+      "annualized_volatility": 0.12,
+      "max_drawdown": -0.15,
+      "sharpe_ratio": 0.8
+    }
+  },
+  "selected": {
+    "alpha": 0.5,
+    "fold_metrics": [
+      {
+        "annualized_return": 0.08,
+        "annualized_volatility": 0.12,
+        "max_drawdown": -0.15,
+        "sharpe_ratio": 0.7
+      },
+      {
+        "annualized_return": 0.08,
+        "annualized_volatility": 0.12,
+        "max_drawdown": -0.15,
+        "sharpe_ratio": 0.8
+      }
+    ],
+    "gamma": 4.0,
+    "transaction_cost_lambda": 0.001,
+    "validation_sharpe": 0.8,
+    "window_days": 126
+  },
+  "sensitivity": {
+    "126": {
+      "annualized_return": 0.08,
+      "annualized_volatility": 0.12,
+      "max_drawdown": -0.15,
+      "sharpe_ratio": 0.7
+    },
+    "63": {
+      "annualized_return": 0.08,
+      "annualized_volatility": 0.12,
+      "max_drawdown": -0.15,
+      "sharpe_ratio": 0.5
+    }
+  }
+}

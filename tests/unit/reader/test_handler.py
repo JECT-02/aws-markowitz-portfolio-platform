@@ -4,6 +4,7 @@ import json
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import boto3
@@ -14,6 +15,7 @@ from reader.handler import ReaderDependencies, build_dependencies, run_reader
 
 BUCKET = "gold-test"
 TABLE = "PortfolioStateTest"
+_BACKTEST_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "backtest_report.json"
 
 
 def _proposal_document() -> dict[str, Any]:
@@ -161,10 +163,24 @@ def test_get_monitor_uses_reconciled_state(environment: None) -> None:
     assert body["reconciled_at"] is not None
 
 
-def test_get_backtest_returns_404(environment: None) -> None:
+def test_get_backtest_returns_the_report(environment: None) -> None:
+    boto3.client("s3", region_name="us-east-1").put_object(
+        Bucket=BUCKET,
+        Key="backtest_latest.json",
+        Body=_BACKTEST_FIXTURE.read_text(encoding="utf-8").encode("utf-8"),
+    )
+    response = run_reader(_event("GET /backtest"), _deps())
+    assert response["statusCode"] == 200
+    body = _body(response)
+    assert body["metadata"]["run_id"] == "run-1"
+    assert body["selected"]["window_days"] == 126
+    assert body["out_of_sample"]["optimizer"]["sharpe_ratio"] == 0.8
+
+
+def test_get_backtest_without_artifact_returns_404(environment: None) -> None:
     response = run_reader(_event("GET /backtest"), _deps())
     assert response["statusCode"] == 404
-    assert "phase 6" in _body(response)["message"]
+    assert "backtest" in _body(response)["message"]
 
 
 def test_unknown_route_returns_404(environment: None) -> None:

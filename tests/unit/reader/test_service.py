@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,8 +10,10 @@ import pytest
 from common.errors import DataValidationError, NotFoundError
 from common.models import DataSource, RunMetadata
 from optimizer.core.models import PortfolioMetrics, Proposal
-from reader.core.models import CurrentState, MonitorRecord, MonitorSnapshot
+from reader.core.models import BacktestReport, CurrentState, MonitorRecord, MonitorSnapshot
 from reader.core.service import ReaderService
+
+_BACKTEST_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "backtest_report.json"
 
 
 def _metadata() -> RunMetadata:
@@ -57,6 +61,7 @@ class _Gold:
     def __init__(self, documents: dict[str, dict[str, Any]]) -> None:
         self.documents = documents
         self.requests: list[date | None] = []
+        self.backtest_requests = 0
 
     def load_proposal(self, run_date: date | None) -> dict[str, Any]:
         self.requests.append(run_date)
@@ -67,6 +72,13 @@ class _Gold:
             return self.documents[key]
         except KeyError:
             raise NotFoundError(f"proposal not found for {key}") from None
+
+    def load_backtest(self) -> dict[str, Any]:
+        self.backtest_requests += 1
+        try:
+            return self.documents["backtest_latest.json"]
+        except KeyError:
+            raise NotFoundError("backtest report not found for backtest_latest.json") from None
 
 
 class _State:
@@ -210,7 +222,26 @@ def test_monitor_without_history_records_keeps_the_base_view() -> None:
     assert history.reads == 1
 
 
-def test_backtest_is_not_available_yet() -> None:
+def test_backtest_report_is_validated() -> None:
+    document = json.loads(_BACKTEST_FIXTURE.read_text(encoding="utf-8"))
+    service, gold, _ = _service({"backtest_latest.json": document})
+    report = service.get_backtest()
+    assert isinstance(report, BacktestReport)
+    assert report.metadata.run_id == "run-1"
+    assert report.metadata.code_version == "abc123"
+    assert report.selected.window_days == 126
+    assert [row.mode for row in report.comparison] == ["optimizer", "spy"]
+    assert report.sensitivity["126"].sharpe_ratio == 0.7
+    assert gold.backtest_requests == 1
+
+
+def test_missing_backtest_raises_not_found() -> None:
     service, _, _ = _service()
     with pytest.raises(NotFoundError):
+        service.get_backtest()
+
+
+def test_malformed_backtest_raises_data_validation() -> None:
+    service, _, _ = _service({"backtest_latest.json": {"unexpected": True}})
+    with pytest.raises(DataValidationError):
         service.get_backtest()
