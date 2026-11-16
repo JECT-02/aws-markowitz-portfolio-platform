@@ -132,10 +132,18 @@ locals {
         Type     = "Task"
         Resource = "arn:${data.aws_partition.current.partition}:states:::sns:publish"
         Parameters = {
-          TopicArn    = var.notifications_topic_arn
-          "Message.$" = "$"
+          TopicArn = var.notifications_topic_arn
+          # SNS accepts a string payload only; the state input is an object.
+          "Message.$" = "States.JsonToString($)"
           Subject     = "Portfolio proposal ready"
         }
+        Catch = [
+          {
+            ErrorEquals = ["States.ALL"]
+            Next        = "PipelineFailed"
+            ResultPath  = "$.error"
+          }
+        ]
         Next = "PipelineSucceeded"
       }
       PipelineSucceeded = {
@@ -145,10 +153,18 @@ locals {
         Type     = "Task"
         Resource = "arn:${data.aws_partition.current.partition}:states:::sns:publish"
         Parameters = {
-          TopicArn    = var.notifications_topic_arn
-          "Message.$" = "$"
+          TopicArn = var.notifications_topic_arn
+          # SNS accepts a string payload only; the state input is an object.
+          "Message.$" = "States.JsonToString($)"
           Subject     = "Portfolio pipeline failure"
         }
+        Catch = [
+          {
+            ErrorEquals = ["States.ALL"]
+            Next        = "PipelineFailed"
+            ResultPath  = "$.error"
+          }
+        ]
         Next = "PipelineFailed"
       }
       PipelineFailed = {

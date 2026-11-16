@@ -92,7 +92,9 @@ run "state_machine_is_standard_with_error_logging" {
   # The ASL content (Retry/Catch/Choice) is static HCL built with jsonencode;
   # its lambda ARNs are unknown at plan time, so the structural assertions
   # below check the resource attributes that are known, and the ASL shape is
-  # reviewed statically (trivy/tflint do not parse ASL).
+  # reviewed statically (trivy/tflint do not parse ASL): every lambda task
+  # lifts its response with ResultSelector, every SNS publish sends
+  # States.JsonToString($) and carries an explicit Catch.
   assert {
     condition     = aws_sfn_state_machine.daily_pipeline.type == "STANDARD"
     error_message = "The pipeline runs on a Standard state machine."
