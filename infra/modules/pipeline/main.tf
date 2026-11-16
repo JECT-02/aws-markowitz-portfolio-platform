@@ -125,6 +125,17 @@ variable "alpaca_secret_key_parameter" {
 variable "strategy" {
   type        = map(string)
   description = "Values from config/strategy.yaml rendered as strings."
+
+  validation {
+    # Null-tolerant: terraform validate evaluates the rule with no value
+    # assigned; an unset required variable still fails at plan/apply with
+    # the standard "required variable not set" error. Key sets are compared
+    # sorted (keys() does not guarantee order across object literals).
+    condition = var.strategy == null || (sort(keys(var.strategy)) == sort(keys(local.strategy_env_names)) && alltrue([
+      for value in values(var.strategy) : trimspace(value) != ""
+    ]))
+    error_message = "strategy must map exactly the 13 strategy.yaml fields (risk_aversion, transaction_cost_lambda, return_shrinkage_alpha, risk_free_rate_annual, max_forward_fill_days, window_days, ingest_lookback_days, rebalance_l1_threshold, validation_gammas, validation_lambdas, validation_alphas, validation_windows, validation_folds) to non-empty strings; empty values usually mean the YAML has keys without values."
+  }
 }
 
 variable "bronze_bucket_name" {

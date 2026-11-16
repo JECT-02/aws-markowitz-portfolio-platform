@@ -1,9 +1,18 @@
 locals {
-  # config/strategy.yaml rendered to the lambda environment variables the
-  # pipeline module expects (same translation as infra/config.py: scalars
-  # become strings, lists join with commas).
   strategy_values = {
-    for field, value in yamldecode(file("${path.module}/../../../config/strategy.yaml")) : field => can(tostring(value)) ? tostring(value) : join(",", [for item in value : tostring(item)])
+    risk_aversion           = "2"
+    transaction_cost_lambda = "0.001"
+    return_shrinkage_alpha  = "0.5"
+    risk_free_rate_annual   = "0.04"
+    max_forward_fill_days   = "2"
+    window_days             = "252"
+    ingest_lookback_days    = "420"
+    rebalance_l1_threshold  = "0.1"
+    validation_gammas       = "1,2"
+    validation_lambdas      = "0,0.001"
+    validation_alphas       = "0,0.5"
+    validation_windows      = "126,252"
+    validation_folds        = "3"
   }
 }
 
