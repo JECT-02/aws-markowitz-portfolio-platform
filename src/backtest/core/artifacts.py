@@ -18,9 +18,9 @@ class S3BacktestWriter:
         """Write the report; reruns for the same run date are idempotent.
 
         Preconditions: ``report`` is a validated ``BacktestReport``.
-        Postconditions: ``run_date=<date>/backtest.json`` and
-        ``backtest_latest.json`` hold the first payload written for the
-        run date; concurrent reruns never overwrite it.
+        Postconditions: ``run_date=<date>/backtest.json`` holds the first
+        payload written for the run date (concurrent reruns never overwrite
+        it); ``backtest_latest.json`` always holds the most recent report.
         """
         payload = report.model_dump(mode="json")
         self._storage.write_json_if_absent(
@@ -28,4 +28,4 @@ class S3BacktestWriter:
             BACKTEST_KEY_TEMPLATE.format(run_date=report.metadata.run_date.isoformat()),
             payload,
         )
-        self._storage.write_json_if_absent(self._gold_bucket, BACKTEST_LATEST_KEY, payload)
+        self._storage.write_json(self._gold_bucket, BACKTEST_LATEST_KEY, payload)
