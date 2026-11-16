@@ -1,13 +1,30 @@
-risk_aversion:
-transaction_cost_lambda:
-return_shrinkage_alpha:
-window_days:
-rebalance_l1_threshold:
-risk_free_rate_annual:
-max_forward_fill_days:
-ingest_lookback_days:
-validation_gammas:
-validation_lambdas:
-validation_alphas:
-validation_windows:
-validation_folds:
+# Strategy parameters — the single source of truth (AGENTS.md section 3).
+#
+# Terraform renders these into the lambda environment variables named in
+# infra/modules/*/main.tf `strategy_env_names` (scalars become strings, lists
+# join with commas); Python parses them back through StrategyConfig
+# (src/common/config.py). tests/unit/common/test_config.py round-trips this
+# file through that same translation, so editing a value here must keep
+# passing those constraints.
+#
+# Risk bounds (0 <= w_i <= 0.20, sum(w) = 1, no shorting) live in
+# config/universe.yaml and the optimizer code; the rebalance threshold is
+# pinned below (AGENTS.md section 5.5).
+#
+# Values follow the ones every unit/property test runs against
+# (tests/conftest.py). Review them before any change: they decide how much
+# risk the proposal carries.
+
+risk_aversion: 2.0                 # gamma: scales the variance term (higher = closer to minimum variance)
+transaction_cost_lambda: 0.001     # lambda_tc: L1 turnover penalty, ~10 bps per unit of one-way turnover
+return_shrinkage_alpha: 0.5        # mu shrinkage weight toward the global mean (0 = raw sample mean)
+risk_free_rate_annual: 0.04        # rf used by every Sharpe/Sortino metric; must stay explicit (section 5.5)
+max_forward_fill_days: 2           # max consecutive days a missing price may be forward-filled
+window_days: 252                   # rolling estimation window in trading days
+rebalance_l1_threshold: 0.10       # rebalance proposed only if ||w* - w_actual||_1 > 0.10 (pinned by section 5.5)
+ingest_lookback_days: 420          # calendar days fetched per run (~288 trading days > window)
+validation_gammas: [1.0, 2.0]      # nested temporal-validation grid
+validation_lambdas: [0.0, 0.001]
+validation_alphas: [0.0, 0.5]
+validation_windows: [126, 252]
+validation_folds: 3
