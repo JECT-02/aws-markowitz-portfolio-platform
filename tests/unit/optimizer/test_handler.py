@@ -124,6 +124,18 @@ def test_run_optimizer_builds_metadata_and_response() -> None:
     assert metadata.source == DataSource.YFINANCE
     assert actual == {"SPY": 0.6, "QQQ": 0.4}
     assert response["proposal_id"] == "2025-02-03-run-9"
+    # Contract with the pipeline state machine ResultSelector
+    # (infra/modules/pipeline/state_machine.tf, output.stage_output_contract).
+    assert set(response) == {
+        "status",
+        "proposal_id",
+        "run_id",
+        "run_date",
+        "weights",
+        "drift_l1",
+        "rebalance_required",
+        "excluded",
+    }
     assert response["status"] == "PENDING"
     assert response["rebalance_required"] is True
     assert response["excluded"] == {"QQQ": "no_data"}

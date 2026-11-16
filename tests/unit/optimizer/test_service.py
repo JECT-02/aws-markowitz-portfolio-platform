@@ -183,7 +183,7 @@ def test_second_run_with_new_id_keeps_the_first_proposal() -> None:
 def test_second_run_refreshes_the_latest_pointer() -> None:
     service, _, storage, _ = _service()
     service.run(_metadata())
-    second = service.run(_metadata().model_copy(update={"run_id": "run-2"}))
+    service.run(_metadata().model_copy(update={"run_id": "run-2"}))
     pointer = storage.json_objects[("gold", "latest.json")]
     assert pointer["proposal_id"] == "2025-01-02-run-2"
     partition = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]

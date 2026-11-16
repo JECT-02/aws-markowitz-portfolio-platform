@@ -104,6 +104,27 @@ run "state_machine_is_standard_with_error_logging" {
   }
 }
 
+run "state_machine_reads_the_published_stage_contract" {
+  command = plan
+
+  assert {
+    condition = output.stage_output_contract == {
+      ingest = ["status", "run_id", "run_date", "source", "accepted"]
+      clean  = ["status", "run_id", "run_date", "source"]
+      optimize = [
+        "status",
+        "proposal_id",
+        "run_id",
+        "run_date",
+        "weights",
+        "drift_l1",
+        "rebalance_required",
+      ]
+    }
+    error_message = "The stage output contract must stay aligned with the ResultSelector paths in the ASL and the handler tests."
+  }
+}
+
 run "scheduler_uses_ny_timezone_cron" {
   command = plan
 
