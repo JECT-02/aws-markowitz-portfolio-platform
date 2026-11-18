@@ -63,3 +63,17 @@ def test_settings_require_parameter_names() -> None:
 def test_settings_reject_missing_names() -> None:
     with pytest.raises(ConfigurationError):
         SecretsSettings.from_environment({})
+
+
+def test_provider_strips_surrounding_whitespace() -> None:
+    """L-07: a trailing newline in SSM would invalidate the Alpaca signature."""
+    client = _FakeSsm({"key": "  abc \n"})
+    provider = SsmSecretProvider(cast(BaseClient, client))
+    assert provider.get_secret("key") == "abc"
+
+
+def test_provider_rejects_whitespace_only_values() -> None:
+    client = _FakeSsm({"key": "   \n"})
+    provider = SsmSecretProvider(cast(BaseClient, client))
+    with pytest.raises(SecretError, match="whitespace"):
+        provider.get_secret("key")

@@ -92,3 +92,17 @@ def test_missing_column_is_rejected() -> None:
     source = YFinanceMarketDataSource(downloader=lambda *args, **kwargs: frame)
     with pytest.raises(ExternalSourceError):
         source.fetch_daily_bars(_request())
+
+
+def test_naive_timestamps_are_interpreted_as_eastern_not_utc() -> None:
+    """L-08: naive bars are localized to America/New_York, never re-stamped UTC."""
+    from datetime import UTC, datetime
+
+    from ingest.adapters.yfinance import _timestamp
+
+    naive = _timestamp("2024-01-02")
+    assert naive.tzinfo is not None
+    assert naive.utcoffset().total_seconds() == -5 * 3600  # January = EST, midnight kept
+    aware = _timestamp(datetime(2024, 1, 2, tzinfo=UTC))
+    # Aware values are converted (same instant), never re-stamped (L-08).
+    assert aware == datetime(2024, 1, 2, tzinfo=UTC)

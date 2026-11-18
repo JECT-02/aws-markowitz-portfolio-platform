@@ -10,6 +10,7 @@ from common.models import (
     DataSource,
     MarketCalendarDay,
     RunMetadata,
+    decimal_string,
 )
 
 
@@ -104,3 +105,14 @@ def test_market_calendar_day_parses_time_strings() -> None:
     )
     assert entry.open.hour == 9
     assert entry.close.hour == 16
+
+
+def test_decimal_string_quantizes_and_bounds() -> None:
+    """L-11: bounded magnitude, 12-decimal quantization, no DynamoDB overflow."""
+    assert decimal_string(0.1) == "0.100000000000"
+    assert decimal_string(10000.0) == "10000.000000000000"
+    assert len(decimal_string(12345678901234.5).replace(".", "").replace("-", "")) <= 38
+    with pytest.raises(ValueError, match="magnitude"):
+        decimal_string(1e30)
+    with pytest.raises(ValueError, match="finite"):
+        decimal_string(float("nan"))

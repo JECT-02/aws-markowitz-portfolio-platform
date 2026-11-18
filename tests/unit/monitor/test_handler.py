@@ -216,4 +216,4 @@ def test_end_to_end_run_writes_the_dynamodb_item() -> None:
     )["Items"]
     assert len(items) == 1
     assert float(items[0]["drift_l1"]["N"]) == pytest.approx(0.06)
-    assert items[0]["weights_live"]["M"]["SPY"]["N"] == "0.63"
+    assert float(items[0]["weights_live"]["M"]["SPY"]["N"]) == pytest.approx(0.63)

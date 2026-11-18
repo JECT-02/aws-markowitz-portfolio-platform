@@ -219,3 +219,33 @@ def test_runtime_settings_requires_every_variable(name: str) -> None:
     with pytest.raises(ConfigurationError) as error:
         RuntimeSettings.from_environment(environ)
     assert name in str(error.value)
+
+
+def test_from_yaml_matches_the_terraform_rendering(
+    strategy_env_names: dict[str, str],
+) -> None:
+    """L-17: local runs read the YAML directly, the same values as the lambdas."""
+    path = Path(__file__).resolve().parents[3] / "config" / "strategy.yaml"
+    from_yaml = StrategyConfig.from_yaml(path)
+
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    def _scalar(value: object) -> str:
+        return str(value)
+
+    environ = {
+        env_name: (
+            ",".join(_scalar(item) for item in document[field])
+            if isinstance(document[field], list)
+            else _scalar(document[field])
+        )
+        for field, env_name in strategy_env_names.items()
+    }
+    assert StrategyConfig.from_environment(environ) == from_yaml
+
+
+def test_from_yaml_rejects_wrong_fields(tmp_path: Path) -> None:
+    path = tmp_path / "strategy.yaml"
+    path.write_text("risk_aversion: 2.0\n", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="strategy fields"):
+        StrategyConfig.from_yaml(path)

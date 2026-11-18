@@ -40,8 +40,13 @@ class SsmSecretProvider:
         value = parameter.get("Value")
         if not isinstance(value, str) or not value:
             raise SecretError(f"parameter has no value: {name}")
-        self._cache[name] = value
-        return value
+        # Normalize once here (L-07): SSM values pasted with a trailing
+        # newline or spaces would invalidate the Alpaca signature downstream.
+        normalized = value.strip()
+        if not normalized:
+            raise SecretError(f"parameter value is only whitespace: {name}")
+        self._cache[name] = normalized
+        return normalized
 
 
 @dataclass(frozen=True)

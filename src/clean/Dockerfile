@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-COPY src/clean/requirements.txt ./requirements.txt
+COPY build/requirements.lock.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/common ./common

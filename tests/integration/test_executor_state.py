@@ -133,7 +133,7 @@ class TestWriteExecutionResult:
             Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
         )["Item"]
         assert item["status"]["S"] == "EXECUTED"
-        assert item["account_value"]["N"] == "10000.0"
+        assert float(item["account_value"]["N"]) == pytest.approx(10000.0)
         assert item["executed_at"]["S"] == NOW.isoformat()
 
     def test_failed_result_stores_the_error(self, state_table) -> None:
@@ -158,8 +158,8 @@ class TestWriteReconciledState:
             TableName=TABLE_NAME,
             Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
         )["Item"]
-        assert item["weights"]["M"]["SPY"]["N"] == "0.6"
-        assert item["account_value"]["N"] == "10000.0"
+        assert float(item["weights"]["M"]["SPY"]["N"]) == pytest.approx(0.6)
+        assert item["account_value"]["N"] == "10000.000000000000"
         assert item["reconciled_at"]["S"] == NOW.isoformat()
 
     def test_rejects_weights_above_the_account_equity(self, state_table) -> None:

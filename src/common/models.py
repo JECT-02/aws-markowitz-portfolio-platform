@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+MAX_DECIMAL_MAGNITUDE = Decimal(10) ** 25
+
 
 class DataSource(StrEnum):
     """Supported market data sources.
@@ -228,7 +230,13 @@ class OrderSnapshot(BaseModel):
 
 
 def decimal_string(value: float) -> str:
-    """Serialize a finite float for DynamoDB numeric storage."""
+    """Serialize a finite float for DynamoDB numeric storage (L-11).
+
+    Quantizes to 12 decimal places so values never exceed DynamoDB's
+    38-digit limit, and rejects values outside a sane magnitude range.
+    """
     if not math.isfinite(value):
         raise ValueError("value must be finite")
-    return str(Decimal(str(value)))
+    if abs(value) >= float(MAX_DECIMAL_MAGNITUDE):
+        raise ValueError(f"value out of the storable magnitude range: {value}")
+    return str(Decimal(str(value)).quantize(Decimal("1e-12")))
