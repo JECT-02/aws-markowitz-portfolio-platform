@@ -46,6 +46,10 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
   }
 }
 
+# SSE-S3 provides at-rest encryption; a customer-managed KMS key costs
+# ~$1/month against the $1-$5 budget of AGENTS.md, with no benefit for a
+# private single-account bucket that only holds Terraform state.
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
   rule {

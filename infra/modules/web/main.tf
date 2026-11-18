@@ -88,10 +88,11 @@ resource "aws_s3_bucket_versioning" "spa" {
   }
 }
 
+# SSE-S3 provides at-rest encryption; a customer-managed KMS key would cost
+# ~$1/month against the $1-$5 monthly budget of AGENTS.md, with no benefit
+# for these static assets.
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {
-  # trivy:ignore:AVD-AWS-0132 SSE-S3 provides at-rest encryption; a
-  # customer-managed KMS key costs ~$1/month against the $1-$5 monthly
-  # budget of AGENTS.md with no benefit for these static assets.
   bucket = aws_s3_bucket.spa.id
   rule {
     apply_server_side_encryption_by_default {
@@ -151,6 +152,10 @@ resource "aws_cloudfront_origin_access_control" "spa" {
   signing_protocol                  = "sigv4"
 }
 
+# An AWS WAFv2 WebACL alone costs ~$5-6/month, exceeding the $1-$5 budget
+# of AGENTS.md; the SPA is a single-user, auth-gated static dashboard and
+# the API behind it is JWT-protected.
+# trivy:ignore:AVD-AWS-0011
 resource "aws_cloudfront_distribution" "spa" {
   comment             = "SPA for ${var.project} ${var.env}"
   enabled             = true

@@ -114,12 +114,13 @@ resource "aws_s3_bucket_versioning" "lakehouse" {
   }
 }
 
+# SSE-S3 provides at-rest encryption; a customer-managed KMS key would cost
+# ~$1/month per key against the $1-$5 monthly budget of AGENTS.md, with no
+# benefit for these private single-account buckets.
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "lakehouse" {
   for_each = aws_s3_bucket.lakehouse
 
-  # trivy:ignore:AVD-AWS-0132 SSE-S3 provides at-rest encryption; a
-  # customer-managed KMS key costs ~$1/month per key against the $1-$5
-  # monthly budget of AGENTS.md with no benefit for these private buckets.
   bucket = each.value.id
   rule {
     apply_server_side_encryption_by_default {
@@ -240,9 +241,10 @@ resource "aws_dynamodb_table" "portfolio_state" {
 
 # --- Notifications -----------------------------------------------------------
 
+# Encrypted with the free AWS-managed key; a customer-managed key adds
+# ~$1/month with no benefit for a single-account, single-user topic.
+# trivy:ignore:AVD-AWS-0136
 resource "aws_sns_topic" "notifications" {
-  # AWS-managed KMS key: encrypted at rest at no extra cost (a customer
-  # managed key would add ~$1/month against the AGENTS.md budget).
   name              = "${var.project}-${var.env}-notifications"
   kms_master_key_id = "alias/aws/sns"
   tags              = { project = var.project, env = var.env, owner = "JECT" }

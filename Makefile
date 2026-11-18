@@ -52,7 +52,7 @@ tf-validate:
 
 tf-lint:
 	tflint --chdir infra --recursive
-	trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile infra/.trivyignore infra
+	trivy config --exit-code 1 --severity HIGH,CRITICAL infra
 
 tf-test:
 	cd infra/modules/data && terraform test
