@@ -107,8 +107,10 @@ class Reconciliation(BaseModel):
         total = math.fsum(self.weights.values())
         if any(not math.isfinite(weight) or weight < 0.0 for weight in self.weights.values()):
             raise ValueError("reconciled weights must be finite and non-negative")
-        if abs(total - 1.0) > 1e-6:
-            raise ValueError("reconciled weights must sum to one")
+        # Weights are fractions of the account equity; uninvested cash is the
+        # remainder, so the sum may be below one but never above it.
+        if total > 1.0 + 1e-6:
+            raise ValueError("reconciled weights must not exceed the account equity")
         return self
 
 

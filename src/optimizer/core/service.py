@@ -24,7 +24,7 @@ from optimizer.core.metrics import (
     sortino_ratio,
     turnover_l1,
 )
-from optimizer.core.models import PortfolioMetrics, Proposal
+from optimizer.core.models import BaselineSource, PortfolioMetrics, Proposal
 from optimizer.core.problem import INACCURATE_STATUS, INACCURATE_TOLERANCE, MarkowitzOptimizer
 from optimizer.core.repository import PricesRepository, ReturnsMatrix, ReturnsRepository
 
@@ -91,10 +91,16 @@ class OptimizerService:
             )
         estimates = estimate(matrix.values, self._strategy.return_shrinkage_alpha)
         if actual_weights is None:
+            # AGENTS.md section 5.3: without reconciled state the drift is
+            # measured against a synthetic 1/N baseline; the proposal carries
+            # baseline_source so it is never approved as the real portfolio.
             logger.warning(
-                "actual weights not provided, defaulting to equal weights",
+                "no reconciled state; proposal baseline is the 1/N fallback",
                 extra={"run_id": metadata.run_id},
             )
+            baseline_source: BaselineSource = "equal_weight_fallback"
+        else:
+            baseline_source = "state"
         actual = _resolve_actual_weights(
             matrix.symbols,
             self._universe.max_weight,
@@ -142,6 +148,7 @@ class OptimizerService:
             rebalance_required=rebalance_required,
             weights=_as_weight_mapping(matrix.symbols, result.weights),
             actual_weights=_as_weight_mapping(matrix.symbols, actual),
+            baseline_source=baseline_source,
             drift_l1=drift,
             benchmark_weights=benchmarks.as_mapping(matrix.symbols),
             metrics=metrics,
@@ -210,8 +217,10 @@ def _resolve_actual_weights(
         raise DataValidationError("actual weights contain non-finite values")
     if float(weights.min()) < 0.0:
         raise DataValidationError("actual weights must be non-negative")
-    if abs(float(weights.sum()) - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise DataValidationError("actual weights must sum to one")
+    # Weights are fractions of the account equity; uninvested cash is the
+    # remainder, so the sum may be below one but never above it.
+    if float(weights.sum()) > 1.0 + WEIGHT_SUM_TOLERANCE:
+        raise DataValidationError("actual weights must not exceed the account equity")
     return weights
 
 

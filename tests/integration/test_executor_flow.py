@@ -9,6 +9,7 @@ from moto import mock_aws
 
 from common.config import ExecutorConfig
 from common.errors import (
+    BrokerError,
     IdempotencyConflict,
     MarketClosed,
     NotFoundError,
@@ -293,6 +294,16 @@ class TestPartialFills:
         partial = [order for order in result.orders if order.status.value == "partially_filled"]
         assert len(partial) == 1
         assert partial[0].filled_quantity < partial[0].requested_quantity
+        # Weights are fractions of the equity: the unfilled half of the TLT
+        # target stays in cash, so the reconciled sum is strictly below one.
+        total = sum(result.reconciliation.weights.values())
+        assert total == pytest.approx(0.9, abs=1e-6)
+        state_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        stored = {symbol: float(value["N"]) for symbol, value in state_item["weights"]["M"].items()}
+        assert sum(stored.values()) == pytest.approx(total, abs=1e-6)
 
     def test_rejected_all_orders_fail_the_execution(self, env) -> None:
         client, s3 = env
@@ -303,3 +314,64 @@ class TestPartialFills:
         result = _service(broker, clock).execute(PROPOSAL_ID, KEY)
         assert result.status is ProposalStatus.FAILED
         assert result.error is not None
+        # Even with every order rejected the real positions reconcile.
+        assert result.reconciliation is not None
+
+
+class _FailingAfterFirstBroker:
+    """Delegates to a SimulatedBroker and raises from the second submit."""
+
+    def __init__(self, inner: SimulatedBroker) -> None:
+        self._inner = inner
+        self.calls = 0
+
+    def submit_order(self, *args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        if self.calls >= 2:
+            raise BrokerError("broker rejected the second order")
+        return self._inner.submit_order(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class TestMidFlightFailure:
+    def test_failure_after_a_filled_sell_still_reconciles_state(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        _put_prices(s3)
+        broker = _broker(
+            positions=[
+                BrokerPosition(symbol="SPY", quantity=700.0, price=100.0),
+                BrokerPosition(symbol="QQQ", quantity=10.0, price=50.0),
+            ]
+        )
+        with pytest.raises(BrokerError):
+            _service(_FailingAfterFirstBroker(broker)).execute(PROPOSAL_ID, KEY)
+        proposal_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
+        )["Item"]
+        assert proposal_item["status"]["S"] == "FAILED"
+        # The sell filled before the failure: the reconciled state must show
+        # the reduced position instead of the pre-execution weights.
+        state_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        weights = {
+            symbol: float(value["N"]) for symbol, value in state_item["weights"]["M"].items()
+        }
+        assert weights["SPY"] == pytest.approx(0.2, abs=1e-6)
+        assert weights["QQQ"] == pytest.approx(0.005, abs=1e-6)
+        assert float(state_item["account_value"]["N"]) == pytest.approx(100_000.0)
+
+    def test_broker_failure_during_reconciliation_does_not_mask_the_error(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        _put_prices(s3)
+        broker = _FailingAfterFirstBroker(_broker())
+        service = _service(broker)
+        broker.calls = 1  # fail immediately on the first order submit
+        with pytest.raises(BrokerError, match="second order"):
+            service.execute(PROPOSAL_ID, KEY)

@@ -16,6 +16,7 @@ from common.errors import (
     BrokerError,
     ConfigurationError,
     DataValidationError,
+    IdempotencyConflict,
     MarketClosed,
     NotFoundError,
     PortfolioError,
@@ -77,6 +78,10 @@ def run_executor(event: Mapping[str, Any], deps: ExecutorDependencies) -> dict[s
     except DataValidationError as exc:
         return _response(400, {"message": str(exc)})
     except (ProposalExpired, ProposalNotPending, MarketClosed, PriceDriftExceeded) as exc:
+        return _response(409, {"message": str(exc)})
+    except IdempotencyConflict as exc:
+        # The key is claimed by another in-flight execution: the caller must
+        # not retry blindly (AGENTS.md section 6.2).
         return _response(409, {"message": str(exc)})
     except BrokerError as exc:
         logger.exception("broker rejected the execution", extra={"route": route})

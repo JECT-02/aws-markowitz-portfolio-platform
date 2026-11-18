@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from common.models import BrokerPosition, OrderSide, OrderStatus
-from executor.core.planning import plan_orders
+from executor.core.planning import MAX_CLIENT_ORDER_ID_LENGTH, plan_orders
 from executor.core.simulated import SimulatedBroker
 
 
@@ -38,7 +38,7 @@ class TestPlanOrders:
         order = plan.buys[0]
         assert order.quantity == pytest.approx(190.0)
         assert order.notional == pytest.approx(1_900.0)
-        assert order.client_order_id == "p1-AAA-buy"
+        assert order.client_order_id.endswith("-AAA-buy")
 
     def test_sell_all_position_when_target_is_zero(self) -> None:
         plan = plan_orders(
@@ -87,6 +87,47 @@ class TestPlanOrders:
         )
         identifiers = [order.client_order_id for order in plan.sales + plan.buys]
         assert len(set(identifiers)) == len(identifiers)
+
+    def test_client_order_ids_are_deterministic_and_within_the_broker_limit(self) -> None:
+        proposal_id = "2026-11-13-0123456789abcdef0123456789abcdef"
+        first = plan_orders(
+            proposal_id,
+            {"SPY": 0.5, "BRK.B": 0.5},
+            _positions(("BRK.B", 100.0, 10.0)),
+            equity=20_000.0,
+            prices={"SPY": 10.0, "BRK.B": 10.0},
+            min_order_notional=10.0,
+        )
+        second = plan_orders(
+            proposal_id,
+            {"SPY": 0.5, "BRK.B": 0.5},
+            _positions(("BRK.B", 100.0, 10.0)),
+            equity=20_000.0,
+            prices={"SPY": 10.0, "BRK.B": 10.0},
+            min_order_notional=10.0,
+        )
+        identifiers = [order.client_order_id for order in first.sales + first.buys]
+        assert identifiers == [order.client_order_id for order in second.sales + second.buys]
+        assert all(len(identifier) <= MAX_CLIENT_ORDER_ID_LENGTH for identifier in identifiers)
+
+    def test_distinct_proposals_get_distinct_order_ids(self) -> None:
+        first = plan_orders(
+            "2026-11-13-run-1",
+            {"SPY": 1.0},
+            [],
+            equity=20_000.0,
+            prices={"SPY": 10.0},
+            min_order_notional=10.0,
+        )
+        second = plan_orders(
+            "2026-11-13-run-2",
+            {"SPY": 1.0},
+            [],
+            equity=20_000.0,
+            prices={"SPY": 10.0},
+            min_order_notional=10.0,
+        )
+        assert first.buys[0].client_order_id != second.buys[0].client_order_id
 
 
 class TestSimulatedBroker:

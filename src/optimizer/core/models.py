@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from common.models import RunMetadata
+
+# Where the proposal's actual_weights came from. "state" means they were read
+# from the reconciled STATE/CURRENT item; "equal_weight_fallback" means no
+# reconciled state existed and the drift is measured against a synthetic 1/N
+# baseline that must never be approved as if it were the real portfolio.
+BaselineSource = Literal["state", "equal_weight_fallback"]
 
 
 class PortfolioMetrics(BaseModel):
@@ -33,6 +40,7 @@ class Proposal(BaseModel):
     rebalance_required: bool
     weights: dict[str, float]
     actual_weights: dict[str, float]
+    baseline_source: BaselineSource
     drift_l1: float
     benchmark_weights: dict[str, dict[str, float]]
     metrics: dict[str, PortfolioMetrics]

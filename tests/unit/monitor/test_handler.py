@@ -71,6 +71,7 @@ def _proposal(weights: dict[str, float]) -> Proposal:
         rebalance_required=False,
         weights=weights,
         actual_weights=weights,
+        baseline_source="state",
         drift_l1=0.0,
         benchmark_weights={"equal_weight": weights},
         metrics={

@@ -140,6 +140,7 @@ def _response(proposal: Proposal) -> dict[str, object]:
         "weights": dict(proposal.weights),
         "drift_l1": proposal.drift_l1,
         "rebalance_required": proposal.rebalance_required,
+        "baseline_source": proposal.baseline_source,
         "excluded": dict(proposal.excluded),
     }
 

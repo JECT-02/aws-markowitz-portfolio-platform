@@ -37,6 +37,7 @@ class _Service:
             rebalance_required=True,
             weights={"SPY": 0.2},
             actual_weights={"SPY": 1.0},
+            baseline_source="state",
             drift_l1=0.8,
             benchmark_weights={},
             metrics={},
@@ -134,6 +135,7 @@ def test_run_optimizer_builds_metadata_and_response() -> None:
         "weights",
         "drift_l1",
         "rebalance_required",
+        "baseline_source",
         "excluded",
     }
     assert response["status"] == "PENDING"

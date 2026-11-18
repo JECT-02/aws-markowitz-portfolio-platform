@@ -49,7 +49,12 @@ class ExecutionState(Protocol):
         now: datetime,
     ) -> None: ...
 
-    def claim_idempotency(self, idempotency_key: str, proposal_id: str) -> IdempotencyClaim: ...
+    def claim_idempotency(
+        self,
+        idempotency_key: str,
+        proposal_id: str,
+        now: datetime,
+    ) -> IdempotencyClaim: ...
 
     def write_idempotency_result(
         self,
@@ -145,8 +150,10 @@ class DynamoExecutionState:
             raise StorageError("reconciled weights must not be empty")
         if any(weight < 0.0 or not math.isfinite(weight) for weight in weights.values()):
             raise StorageError("reconciled weights must be finite and non-negative")
-        if abs(math.fsum(weights.values()) - 1.0) > _WEIGHT_SUM_TOLERANCE:
-            raise StorageError("reconciled weights must sum to one")
+        # Weights are fractions of the account equity; uninvested cash is the
+        # remainder, so the sum may be below one but never above it.
+        if math.fsum(weights.values()) > 1.0 + _WEIGHT_SUM_TOLERANCE:
+            raise StorageError("reconciled weights must not exceed the account equity")
         if not math.isfinite(account_value) or account_value <= 0.0:
             raise StorageError("account value must be finite and positive")
         item = {
@@ -163,9 +170,18 @@ class DynamoExecutionState:
         except (BotoCoreError, ClientError) as exc:
             raise StorageError("failed to write reconciled state") from exc
 
-    def claim_idempotency(self, idempotency_key: str, proposal_id: str) -> IdempotencyClaim:
-        """Claim the idempotency key or return the previously recorded claim."""
-        created = datetime.now(UTC)
+    def claim_idempotency(
+        self,
+        idempotency_key: str,
+        proposal_id: str,
+        now: datetime,
+    ) -> IdempotencyClaim:
+        """Claim the idempotency key or return the previously recorded claim.
+
+        ``now`` comes from the injected clock so TTLs are deterministic in
+        tests (AGENTS.md section 10).
+        """
+        created = now.astimezone(UTC)
         expires = created + IDEMPOTENCY_TTL
         try:
             self._client.put_item(

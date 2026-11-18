@@ -54,6 +54,7 @@ def _proposal(weights: dict[str, float]) -> Proposal:
         rebalance_required=False,
         weights=normalized,
         actual_weights=normalized,
+        baseline_source="state",
         drift_l1=0.0,
         benchmark_weights={"equal_weight": normalized},
         metrics={

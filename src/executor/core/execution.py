@@ -67,7 +67,7 @@ class RebalanceService:
 
     def execute(self, proposal_id: str, idempotency_key: str) -> ExecutionResult:
         """Run the full rebalance flow for one proposal and idempotency key."""
-        claim = self._state.claim_idempotency(idempotency_key, proposal_id)
+        claim = self._state.claim_idempotency(idempotency_key, proposal_id, self._clock.now())
         if claim.result is not None:
             logger.info(
                 "idempotent replay",
@@ -185,11 +185,14 @@ class RebalanceService:
         status = ProposalStatus.EXECUTED if not fills else _classify(fills)
         reconciliation = self._reconcile(current_prices)
         if status is ProposalStatus.FAILED:
+            # Even when every order was rejected the positions and equity are
+            # the real broker state, so the failure still reconciles it.
             return ExecutionResult(
                 proposal_id=plan.proposal_id,
                 status=ProposalStatus.FAILED,
                 orders=fills,
                 error="no order filled",
+                reconciliation=reconciliation,
             )
         return ExecutionResult(
             proposal_id=plan.proposal_id,
@@ -218,14 +221,20 @@ class RebalanceService:
     def _reconcile(self, current_prices: Mapping[str, float]) -> Reconciliation | None:
         positions = self._broker.get_positions()
         equity = self._broker.get_account_equity()
+        if not positions or equity <= 0.0:
+            logger.warning(
+                "reconciliation skipped: no positions or non-positive equity",
+                extra={"positions": len(positions)},
+            )
+            return None
+        # Weights are fractions of the account equity, so uninvested cash is
+        # the remainder and sum(weights) <= 1. Dividing by the position total
+        # would overstate every holding whenever cash exists.
         values = {
             position.symbol: position.quantity * current_prices[position.symbol]
             for position in positions
         }
-        total = sum(values.values())
-        if total <= 0.0:
-            return None
-        weights = {symbol: value / total for symbol, value in values.items()}
+        weights = {symbol: value / equity for symbol, value in values.items()}
         return Reconciliation(
             weights=weights,
             account_value=equity,
@@ -264,6 +273,23 @@ class RebalanceService:
                 error=str(exc),
             )
             self._state.write_execution_result(proposal_id, failed, now)
+            # Orders may have been submitted or filled before the failure
+            # (AGENTS.md section 6.12): the persisted state must never stay
+            # stale, so reconcile from real broker positions. Every write
+            # here is best effort; the original failure keeps propagating.
+            reconciliation = self._post_failure_reconciliation(proposal_id)
+            if reconciliation is not None:
+                try:
+                    self._state.write_reconciled_state(
+                        reconciliation.weights,
+                        reconciliation.account_value,
+                        now,
+                    )
+                except PortfolioError:
+                    logger.exception(
+                        "failed to persist the post-failure reconciliation",
+                        extra={"proposal_id": proposal_id},
+                    )
         claim_failed = ExecutionResult(
             proposal_id=proposal_id,
             status=ProposalStatus.FAILED,
@@ -275,6 +301,32 @@ class RebalanceService:
             "execution failed",
             extra={"proposal_id": proposal_id, "reason": str(exc)},
         )
+
+    def _post_failure_reconciliation(self, proposal_id: str) -> Reconciliation | None:
+        """Best-effort reconciliation with whatever the broker holds now.
+
+        Postconditions: returns the reconciliation from real positions, or
+        ``None`` if the broker or the price feed also failed; never raises.
+        """
+        try:
+            positions = self._broker.get_positions()
+            if not positions:
+                logger.warning(
+                    "post-failure reconciliation skipped: broker reports no positions",
+                    extra={"proposal_id": proposal_id},
+                )
+                return None
+            prices = {
+                position.symbol: self._broker.get_price(position.symbol) for position in positions
+            }
+            return self._reconcile(prices)
+        except PortfolioError:
+            logger.exception(
+                "post-failure reconciliation failed; orders in flight must be "
+                "queried by client_order_id",
+                extra={"proposal_id": proposal_id},
+            )
+            return None
 
 
 def _classify(fills: list[FilledOrder]) -> ProposalStatus:

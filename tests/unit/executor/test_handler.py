@@ -10,6 +10,7 @@ from moto import mock_aws
 
 from common.config import ExecutorConfig
 from common.errors import (
+    IdempotencyConflict,
     MarketClosed,
     NotFoundError,
     PriceDriftExceeded,
@@ -117,6 +118,7 @@ def test_missing_proposal_id_is_a_client_error() -> None:
         (ProposalNotPending("not pending"), 409),
         (MarketClosed("closed"), 409),
         (PriceDriftExceeded("drift"), 409),
+        (IdempotencyConflict("already in flight"), 409),
     ],
 )
 def test_rejections_map_to_http_errors(error: Exception, status_code: int) -> None:

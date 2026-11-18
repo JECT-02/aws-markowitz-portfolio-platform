@@ -59,11 +59,12 @@ def test_planning_invariants(
     orders = plan.sales + plan.buys
     identifiers = [order.client_order_id for order in orders]
     assert len(set(identifiers)) == len(identifiers)
+    assert all(len(identifier) <= 48 for identifier in identifiers)
     assert all(order.quantity > 0.0 for order in orders)
     assert all(order.notional >= min_notional for order in orders)
     assert all(math.isfinite(order.quantity) and math.isfinite(order.notional) for order in orders)
     assert all(
-        order.client_order_id == f"prop-{order.symbol}-{order.side.value}" for order in orders
+        order.client_order_id.endswith(f"-{order.symbol}-{order.side.value}") for order in orders
     )
     for order in orders:
         position = next((p for p in positions if p.symbol == order.symbol), None)

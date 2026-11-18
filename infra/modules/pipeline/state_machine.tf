@@ -110,6 +110,7 @@ locals {
           "weights.$"            = "$.Payload.weights"
           "drift_l1.$"           = "$.Payload.drift_l1"
           "rebalance_required.$" = "$.Payload.rebalance_required"
+          "baseline_source.$"    = "$.Payload.baseline_source"
         }
         Retry = [
           {
@@ -389,6 +390,7 @@ output "stage_output_contract" {
       "weights",
       "drift_l1",
       "rebalance_required",
+      "baseline_source",
     ]
   }
 }
