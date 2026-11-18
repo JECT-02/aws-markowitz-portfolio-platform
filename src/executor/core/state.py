@@ -49,7 +49,12 @@ class ExecutionState(Protocol):
         now: datetime,
     ) -> None: ...
 
-    def claim_idempotency(self, idempotency_key: str, proposal_id: str) -> IdempotencyClaim: ...
+    def claim_idempotency(
+        self,
+        idempotency_key: str,
+        proposal_id: str,
+        now: datetime,
+    ) -> IdempotencyClaim: ...
 
     def write_idempotency_result(
         self,
@@ -165,9 +170,18 @@ class DynamoExecutionState:
         except (BotoCoreError, ClientError) as exc:
             raise StorageError("failed to write reconciled state") from exc
 
-    def claim_idempotency(self, idempotency_key: str, proposal_id: str) -> IdempotencyClaim:
-        """Claim the idempotency key or return the previously recorded claim."""
-        created = datetime.now(UTC)
+    def claim_idempotency(
+        self,
+        idempotency_key: str,
+        proposal_id: str,
+        now: datetime,
+    ) -> IdempotencyClaim:
+        """Claim the idempotency key or return the previously recorded claim.
+
+        ``now`` comes from the injected clock so TTLs are deterministic in
+        tests (AGENTS.md section 10).
+        """
+        created = now.astimezone(UTC)
         expires = created + IDEMPOTENCY_TTL
         try:
             self._client.put_item(

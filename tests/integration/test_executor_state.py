@@ -181,26 +181,26 @@ class TestWriteReconciledState:
 
 class TestIdempotency:
     def test_first_claim_is_fresh(self, state_table) -> None:
-        claim = _state().claim_idempotency("key-1", PROPOSAL_ID)
+        claim = _state().claim_idempotency("key-1", PROPOSAL_ID, NOW)
         assert claim.result is None
         assert claim.status == "EXECUTING"
 
     def test_repeated_claim_returns_the_recorded_one(self, state_table) -> None:
         state = _state()
-        state.claim_idempotency("key-1", PROPOSAL_ID)
-        repeat = state.claim_idempotency("key-1", PROPOSAL_ID)
+        state.claim_idempotency("key-1", PROPOSAL_ID, NOW)
+        repeat = state.claim_idempotency("key-1", PROPOSAL_ID, NOW)
         assert repeat.proposal_id == PROPOSAL_ID
         assert repeat.result is None
 
     def test_claim_survives_a_different_proposal_id(self, state_table) -> None:
         state = _state()
-        state.claim_idempotency("key-1", PROPOSAL_ID)
-        repeat = state.claim_idempotency("key-1", "other-proposal")
+        state.claim_idempotency("key-1", PROPOSAL_ID, NOW)
+        repeat = state.claim_idempotency("key-1", "other-proposal", NOW)
         assert repeat.proposal_id == PROPOSAL_ID
 
     def test_result_write_updates_the_claim(self, state_table) -> None:
         state = _state()
-        state.claim_idempotency("key-1", PROPOSAL_ID)
+        state.claim_idempotency("key-1", PROPOSAL_ID, NOW)
         result = _result(
             reconciliation=Reconciliation(
                 weights={"SPY": 1.0},
@@ -209,7 +209,7 @@ class TestIdempotency:
             )
         )
         state.write_idempotency_result("key-1", result, NOW)
-        repeat = state.claim_idempotency("key-1", PROPOSAL_ID)
+        repeat = state.claim_idempotency("key-1", PROPOSAL_ID, NOW)
         assert repeat.result is not None
         assert repeat.result.status is ProposalStatus.EXECUTED
         assert repeat.result.reconciliation is not None
@@ -281,7 +281,7 @@ class TestStorageFailures:
     def test_claim_with_generic_client_error(self) -> None:
         client = _FailingClient(_client_error("InternalServerError", "boom"), "put_item")
         with pytest.raises(StorageError, match="claim idempotency"):
-            DynamoExecutionState(TABLE_NAME, client=client).claim_idempotency("key-1", "p")
+            DynamoExecutionState(TABLE_NAME, client=client).claim_idempotency("key-1", "p", NOW)
 
     def test_claim_disappears_between_condition_and_read(self) -> None:
         class _GhostClient:
@@ -292,12 +292,14 @@ class TestStorageFailures:
                 return {}
 
         with pytest.raises(StorageError, match="disappeared"):
-            DynamoExecutionState(TABLE_NAME, client=_GhostClient()).claim_idempotency("key-1", "p")
+            DynamoExecutionState(TABLE_NAME, client=_GhostClient()).claim_idempotency(
+                "key-1", "p", NOW
+            )
 
     def test_claim_with_botocore_error(self) -> None:
         client = _FailingClient(BotoCoreError(), "put_item")
         with pytest.raises(StorageError, match="claim idempotency"):
-            DynamoExecutionState(TABLE_NAME, client=client).claim_idempotency("k", "p")
+            DynamoExecutionState(TABLE_NAME, client=client).claim_idempotency("k", "p", NOW)
 
     def test_idempotency_result_never_claimed(self) -> None:
         client = _FailingClient(
@@ -383,4 +385,4 @@ class TestMalformedItems:
             },
         )
         with pytest.raises(StorageError, match="invalid"):
-            _state().claim_idempotency("key-1", "p")
+            _state().claim_idempotency("key-1", "p", NOW)

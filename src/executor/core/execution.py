@@ -67,7 +67,7 @@ class RebalanceService:
 
     def execute(self, proposal_id: str, idempotency_key: str) -> ExecutionResult:
         """Run the full rebalance flow for one proposal and idempotency key."""
-        claim = self._state.claim_idempotency(idempotency_key, proposal_id)
+        claim = self._state.claim_idempotency(idempotency_key, proposal_id, self._clock.now())
         if claim.result is not None:
             logger.info(
                 "idempotent replay",
