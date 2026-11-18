@@ -2,6 +2,39 @@
 
 > **Versión 2 (noviembre 2026).** Rediseño completo a partir de la versión 1. Incluye correcciones técnicas, decisiones de herramientas justificadas con datos verificados y un plan de implementación.
 
+> **Estado de la implementación (noviembre 2026).** Este documento conserva el
+> diseño de referencia; el sistema construido se desvía de él de forma
+> consciente y registrada (L-02/L-15). Lo que **existe hoy**:
+>
+> - **IaC = Terraform** (no CDK): módulos `data`, `pipeline`, `backtest`,
+>   `api` y `web` en `infra/modules/`, entorno único `dev` en
+>   `infra/envs/dev`, estado remoto S3 con lockfile y bootstrap OIDC en
+>   `infra/bootstrap/`. Las menciones a CDK en el resto del documento son del
+>   diseño original y quedan sustituidas por esta decisión.
+> - **Flujo diario construido:** EventBridge Scheduler → Step Functions
+>   (Ingest → Clean → Optimize → SNS) con contrato de salida fijado por
+>   pruebas (ResultSelector en el ASL), lakehouse Bronze/Silver/Gold en S3,
+>   Silver particionada **por día** (inmutable), propuesta en DynamoDB con
+>   corrección condicional de propuestas no ejecutadas.
+> - **Backtest semanal** con validación temporal **holdout de un nivel** (no
+>   anidada; limitación documentada), presupuesto de grilla acotado y reporte
+>   con los tramos de train/validation/test.
+> - **Ejecución:** API `POST /rebalance` con JWT de Cognito **y grupo
+>   autorizado** (`executors`), idempotencia, reloj de mercado, drift contra
+>   el adjusted close re-obtenido, `client_order_id` determinista ≤ 48
+>   caracteres y reconciliación contra las posiciones reales (pesos fracción
+>   del equity; el efectivo es el resto).
+> - **Servido:** Reader API (HTTP API + JWT) + SPA estática + **conector
+>   comunitario de Looker Studio** vía Apps Script (el diagrama de "SPA
+>   únicamente" no excluye el BI; el conector no ejecuta acciones).
+> - **Recortes de alcance decididos por el humano** (proyecto demostrativo,
+>   $0): **sin** alarmas CloudWatch, sin alertas SNS del monitor, sin
+>   budgets, sin email, sin entorno `prod`, sin Athena/Glue. El monitor solo
+>   escribe su instantánea en DynamoDB; la notificación SNS queda para el
+>   resultado del pipeline (ya implementada).
+> - Los benchmarks comparados son **1/N, mínima varianza y SPY** (risk parity
+>   del diseño original no se implementó).
+
 **Título sugerido (más honesto y defendible):**
 *Near-Real-Time Monitoring and Daily Markowitz Rebalancing via Convex Quadratic Programming: An AWS Serverless IaC Architecture*
 
@@ -44,7 +77,7 @@ Se construye un sistema **serverless** en AWS que:
 5. Ante la **aprobación explícita del usuario**, un ejecutor envía las órdenes a **Alpaca (paper trading)** de forma idempotente y reconcilia el estado real del portafolio.
 6. Entre cierres, un **lazo de monitoreo** cada 15 minutos (solo con mercado abierto) calcula el desvío del portafolio real respecto al objetivo, sin reoptimizar.
 
-Toda la infraestructura se define con **AWS CDK (Python)** y se despliega con GitHub Actions.
+Toda la infraestructura se define con **Terraform** (desviación registrada del diseño CDK original; ver el bloque "Estado de la implementación") y se despliega con GitHub Actions.
 
 **Decisión central de diseño:** el "tiempo real" se refiere al **monitoreo**, no a la decisión de inversión. Reoptimizar Markowitz cada 15 minutos con retornos diarios solo añade ruido y rotación.
 
@@ -63,11 +96,11 @@ Toda la infraestructura se define con **AWS CDK (Python)** y se despliega con Gi
 | 7 | Lambdas encadenadas por eventos | **AWS Step Functions** | Reintentos, manejo de errores y trazabilidad. |
 | 8 | Secrets Manager implícito | **SSM Parameter Store (SecureString)** | Secrets Manager cobra por secreto al mes; SSM estándar no. |
 | 9 | Cron en UTC fijo (`21:00 UTC`) | **EventBridge Scheduler con zona `America/New_York`** | El cierre del mercado es 16:00 ET; en UTC cambia con el horario de verano. |
-| 10 | μ = media muestral | **μ con shrinkage** + benchmarks (mínima varianza, risk parity, 1/N) | La media muestral es la parte más ruidosa de Markowitz. |
+| 10 | μ = media muestral | **μ con shrinkage** + benchmarks (mínima varianza, 1/N, SPY) | La media muestral es la parte más ruidosa de Markowitz. |
 | 11 | Costos "$0.00" | **$1–$5/mes realistas** | El free tier cambió para cuentas nuevas (créditos, no 12 meses). |
 | 12 | Ejecución sin salvaguardas | **Idempotencia, reloj de mercado, validez de propuesta, reconciliación real** | Evitar doble orden y desfases entre pesos teóricos y reales. |
 | 13 | Silver escrita por Ingestion y/o Optimizer (ambiguo) | **Lambda `Clean` dedicada** | Responsabilidad única por función. |
-| 14 | IaC "CDK / Terraform" | **Solo AWS CDK en Python** | Un lenguaje para motor e infraestructura. |
+| 14 | IaC "CDK / Terraform" | **Solo Terraform** (decisión final del proyecto; ver el bloque de estado) | IaC declarativa con lockfile, `terraform test` y análisis estático. |
 | 15 | Sin modo seguro | **`paper=True` obligatorio** hasta validar | Reducir riesgo financiero durante el desarrollo. |
 
 ---
@@ -85,7 +118,7 @@ Toda la infraestructura se define con **AWS CDK (Python)** y se despliega con Gi
 ### 3.2 Lazo rápido: monitoreo (cada 15 min, solo con mercado abierto)
 
 - **Disparo:** EventBridge Scheduler cada 15 minutos entre 09:30 y 16:00 ET, lunes a viernes.
-- **Qué hace:** lee posiciones reales y precios; calcula pesos actuales y drift frente a $w^*$; guarda una instantánea en DynamoDB; alerta por SNS si el drift supera un umbral configurable.
+- **Qué hace:** lee posiciones reales y precios; calcula pesos actuales y drift frente a $w^*$; guarda una instantánea en DynamoDB. Sin alertas por decisión de alcance (recorte registrado); el diseño original contemplaba SNS aquí.
 - **Qué NO hace:** no reoptimiza ni envía órdenes.
 - **Nota sobre datos:** en el plan gratuito de Alpaca, las cotizaciones intradía provienen de IEX (una fracción del volumen consolidado) y el histórico tiene 15 minutos de retraso. Es suficiente para monitoreo, no para trading de alta frecuencia.
 
@@ -107,7 +140,7 @@ Toda la infraestructura se define con **AWS CDK (Python)** y se despliega con Gi
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────────┐
-│ IaC: AWS CDK (Python) + GitHub Actions (OIDC)                                              │
+│ IaC: Terraform + GitHub Actions (OIDC)                                                     │
 └────────────────────────────────────────────────────────────────────────────────────────────┘
 
  ┌─ LAZO LENTO (16:30 ET, L-V) ──────────────────────────────────────────────────────────────┐
