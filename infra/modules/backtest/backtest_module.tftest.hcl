@@ -118,6 +118,19 @@ run "weekly_schedule_uses_saturday_ny_cron" {
   }
 }
 
+run "backtest_role_can_write_its_own_dlq" {
+  command = plan
+
+  # N-02: asynchronous invoke failures must land in the backtest DLQ.
+  assert {
+    condition = contains(
+      flatten([for st in local.permissions_policy : st.Resource]),
+      var.dlq_arn,
+    )
+    error_message = "The backtest role must be able to send to its own DLQ."
+  }
+}
+
 run "iam_is_least_privilege" {
   command = plan
 

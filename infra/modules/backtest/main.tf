@@ -55,6 +55,12 @@ locals {
       Action   = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
       Resource = [var.gold_bucket_arn, "${var.gold_bucket_arn}/*"]
     }
+    WriteOwnDeadLetterQueue = {
+      Sid      = "WriteOwnDeadLetterQueue"
+      Effect   = "Allow"
+      Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
+      Resource = [var.dlq_arn]
+    }
   }
 
   tags = {

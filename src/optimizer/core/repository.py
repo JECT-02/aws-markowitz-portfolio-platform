@@ -22,6 +22,10 @@ class ReturnsMatrix:
     dates: list[date]
     values: np.ndarray
     excluded: dict[str, str]
+    # Sources recorded in the silver partition metadata actually consumed;
+    # empty for hand-built matrices. The backtest uses it to attribute its
+    # artifact honestly (AGENTS.md section 7.3).
+    sources: frozenset[str] = frozenset()
 
     @property
     def n_assets(self) -> int:
@@ -117,7 +121,16 @@ class SilverReturnsRepository:
         keys = self._storage.list_keys(self._silver_bucket, "year=")
         if not keys:
             raise DataValidationError("no silver partitions available")
-        frames = self._read_newest_partitions(keys, needed)
+        frames: list[pd.DataFrame] = []
+        sources: set[str] = set()
+        seen_dates: set[object] = set()
+        for key in reversed(keys):
+            frame, source = self._read_partition(key)
+            frames.append(frame)
+            sources.add(source)
+            seen_dates.update(frame["date"].tolist())
+            if len(seen_dates) >= needed:
+                break
         combined = pd.concat(frames, ignore_index=True)
         duplicates = combined.duplicated(subset=["date", "symbol"])
         if bool(duplicates.any()):
@@ -149,20 +162,25 @@ class SilverReturnsRepository:
             dates=dates,
             values=values,
             excluded=excluded,
+            sources=frozenset(sources),
         )
 
-    def _read_newest_partitions(self, keys: list[str], needed: int) -> list[pd.DataFrame]:
+    def _read_newest_partitions(
+        self,
+        keys: list[str],
+        needed: int,
+    ) -> list[pd.DataFrame]:
         frames: list[pd.DataFrame] = []
         seen_dates: set[object] = set()
         for key in reversed(keys):
-            frame = self._read_partition(key)
+            frame, _source = self._read_partition(key)
             frames.append(frame)
             seen_dates.update(frame["date"].tolist())
             if len(seen_dates) >= needed:
                 break
         return frames
 
-    def _read_partition(self, key: str) -> pd.DataFrame:
+    def _read_partition(self, key: str) -> tuple[pd.DataFrame, str]:
         table = self._storage.read_parquet(self._silver_bucket, key)
         frame: pd.DataFrame = table.to_pandas()
         missing = REQUIRED_COLUMNS.difference(frame.columns)
@@ -170,4 +188,7 @@ class SilverReturnsRepository:
             raise DataValidationError(
                 f"silver partition {key} is missing columns: {', '.join(sorted(missing))}"
             )
-        return frame.loc[:, ["date", "symbol", "log_return"]]
+        metadata = table.schema.metadata or {}
+        encoded_source = metadata.get(b"source")
+        source = encoded_source.decode("utf-8") if isinstance(encoded_source, bytes) else "unknown"
+        return frame.loc[:, ["date", "symbol", "log_return"]], source

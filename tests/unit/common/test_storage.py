@@ -29,6 +29,13 @@ def test_write_json_if_absent_is_idempotent(storage: S3Storage) -> None:
     assert storage.read_json(BUCKET, "k.json") == {"a": 1}
 
 
+def test_write_json_if_absent_does_not_overwrite_a_committed_object(storage: S3Storage) -> None:
+    """N-12: the conditional PUT, not a HEAD/PUT race, guards the payload."""
+    storage.write_json_if_absent(BUCKET, "k.json", {"a": 1})
+    assert storage.write_json_if_absent(BUCKET, "k.json", {"a": 2}) is False
+    assert storage.read_json(BUCKET, "k.json") == {"a": 1}
+
+
 def test_write_json_overwrites(storage: S3Storage) -> None:
     storage.write_json(BUCKET, "k.json", {"a": 1})
     storage.write_json(BUCKET, "k.json", {"a": 2})

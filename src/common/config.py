@@ -1,14 +1,30 @@
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from common.env import require_variable
 from common.errors import ConfigurationError
+
+TRADING_DAYS_PER_YEAR = 252
+# Mirrors the 80% boundary of the nested temporal split
+# (backtest.core.validation): the validation period must hold at least two
+# full windows of observations, so the daily ingest must be able to supply
+# enough history. Single source shared by both sides.
+VALIDATION_FRACTION = 0.80
+BACKTEST_HISTORY_MARGIN_DAYS = 30
 
 _STORAGE_ENV = {
     "bronze_bucket": "BRONZE_BUCKET",
@@ -98,6 +114,32 @@ class StrategyConfig(BaseModel):
     validation_windows: list[int] = Field(min_length=1)
     validation_folds: int = Field(ge=2)
 
+    @model_validator(mode="after")
+    def _validate_history_coherence(self) -> StrategyConfig:
+        """Fail at deploy time on an impossible history configuration (N-18)."""
+        if self.ingest_lookback_days < self.window_days + 1:
+            raise ValueError(
+                f"ingest_lookback_days ({self.ingest_lookback_days}) must exceed "
+                f"window_days ({self.window_days}) so the estimation window can fill"
+            )
+        required_calendar_days = (
+            math.ceil(
+                2
+                * max(self.validation_windows)
+                * 365
+                / (TRADING_DAYS_PER_YEAR * VALIDATION_FRACTION)
+            )
+            + BACKTEST_HISTORY_MARGIN_DAYS
+        )
+        if self.ingest_lookback_days < required_calendar_days:
+            raise ValueError(
+                f"ingest_lookback_days ({self.ingest_lookback_days}) is too short for "
+                f"temporal validation with windows {self.validation_windows}: the weekly "
+                f"backtest needs 0.8 * observations >= 2 * the longest window plus a "
+                f"{BACKTEST_HISTORY_MARGIN_DAYS}-day margin (minimum {required_calendar_days})"
+            )
+        return self
+
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> StrategyConfig:
         """Build strategy parameters from required environment variables."""
@@ -157,8 +199,15 @@ class StrategyConfig(BaseModel):
                 }
             )
         except ValidationError as exc:
-            fields = sorted({str(error["loc"][0]) for error in exc.errors() if error["loc"]})
-            names = ", ".join(_STRATEGY_ENV[field] for field in fields if field in _STRATEGY_ENV)
+            # Cross-field validator errors carry no field location: keep
+            # their message so the operator sees the actual coherence rule
+            # that failed, not just an empty field list.
+            names = ", ".join(
+                _STRATEGY_ENV[str(error["loc"][0])]
+                if error["loc"] and str(error["loc"][0]) in _STRATEGY_ENV
+                else str(error["msg"])
+                for error in exc.errors()
+            )
             raise ConfigurationError(f"invalid strategy environment variables: {names}") from exc
 
 

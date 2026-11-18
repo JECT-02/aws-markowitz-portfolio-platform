@@ -182,6 +182,45 @@ run "strategy_must_not_have_empty_values" {
   expect_failures = [var.strategy]
 }
 
+run "lambda_roles_can_write_their_own_dlq" {
+  command = plan
+
+  # N-02: an asynchronous invoke failure must land in the stage DLQ, so each
+  # role needs SendMessage on its own queue.
+  assert {
+    condition = alltrue(flatten([
+      for stage in ["ingest", "clean", "optimizer", "monitor"] : [
+        contains(
+          flatten([for st in local.permission_policies[stage].Statement : st.Action]),
+          "sqs:SendMessage",
+        ),
+        contains(
+          flatten([for st in local.permission_policies[stage].Statement : st.Resource]),
+          var.dlq_arns[stage],
+        ),
+      ]
+    ]))
+    error_message = "Every pipeline lambda role must be able to send to its own DLQ."
+  }
+}
+
+run "state_machine_timeout_covers_the_stage_budget" {
+  command = plan
+
+  # N-13: the state machine budget must cover the sum of the stage lambda
+  # timeouts (plus the 60s scheduling buffer), never less; the ASL
+  # definition embeds local.stage_timeout_total as its TimeoutSeconds.
+  assert {
+    condition = local.stage_timeout_total == (
+      aws_lambda_function.pipeline["ingest"].timeout +
+      aws_lambda_function.pipeline["clean"].timeout +
+      aws_lambda_function.pipeline["optimizer"].timeout +
+      60
+    )
+    error_message = "The state machine timeout must cover the whole stage budget."
+  }
+}
+
 run "scheduler_uses_ny_timezone_cron" {
   command = plan
 

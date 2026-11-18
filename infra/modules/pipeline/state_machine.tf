@@ -1,9 +1,22 @@
 # Step Functions state machine and the daily EventBridge Scheduler.
 
 locals {
+  # N-13: the state machine budget must cover the sum of the stage lambda
+  # timeouts plus a scheduling buffer; otherwise a slow ingest or clean
+  # starves the optimizer and the run dies in States.Timeout without a
+  # clear culprit. (Anomalous-duration alarm is a documented deviation:
+  # this project deliberately runs without CloudWatch alarms.)
+  stage_timeout_buffer = 60
+  stage_timeout_total = (
+    aws_lambda_function.pipeline["ingest"].timeout +
+    aws_lambda_function.pipeline["clean"].timeout +
+    aws_lambda_function.pipeline["optimizer"].timeout +
+    local.stage_timeout_buffer
+  )
+
   definition = jsonencode({
     Comment        = "Daily Markowitz pipeline: ingest, clean, optimize, notify"
-    TimeoutSeconds = 900
+    TimeoutSeconds = local.stage_timeout_total
     StartAt        = "Ingest"
     States = {
       Ingest = {

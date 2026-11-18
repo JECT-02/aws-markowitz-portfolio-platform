@@ -27,7 +27,7 @@ def _strategy_env() -> dict[str, str]:
         "RISK_FREE_RATE_ANNUAL": "0.04",
         "MAX_FORWARD_FILL_DAYS": "3",
         "WINDOW_DAYS": "252",
-        "INGEST_LOOKBACK_DAYS": "420",
+        "INGEST_LOOKBACK_DAYS": "1900",
         "REBALANCE_L1_THRESHOLD": "0.10",
         "VALIDATION_GAMMAS": "1,2.5,5",
         "VALIDATION_LAMBDAS": "0,0.001",
@@ -107,6 +107,21 @@ def test_strategy_config_rejects_invalid_values() -> None:
     environ = _strategy_env()
     environ["RETURN_SHRINKAGE_ALPHA"] = "2"
     with pytest.raises(ConfigurationError):
+        StrategyConfig.from_environment(environ)
+
+
+def test_strategy_config_rejects_a_lookback_below_the_window() -> None:
+    environ = _strategy_env()
+    environ["INGEST_LOOKBACK_DAYS"] = "200"
+    with pytest.raises(ConfigurationError, match="must exceed"):
+        StrategyConfig.from_environment(environ)
+
+
+def test_strategy_config_rejects_a_lookback_too_short_for_validation() -> None:
+    environ = _strategy_env()
+    # 2 * 252 windows / (252 * 0.8) in calendar days = 913, plus the margin.
+    environ["INGEST_LOOKBACK_DAYS"] = "500"
+    with pytest.raises(ConfigurationError, match="temporal validation"):
         StrategyConfig.from_environment(environ)
 
 

@@ -51,15 +51,32 @@ class S3Storage:
         return True
 
     def write_json_if_absent(self, bucket: str, key: str, payload: dict[str, Any]) -> bool:
-        if self.exists(bucket, key):
-            return False
-        self.write_json(bucket, key, payload)
+        """Atomically create the object only when it does not exist yet.
+
+        Uses an S3 conditional write (``IfNoneMatch="*"``) instead of a
+        HEAD/PUT pair, so two concurrent runs can never both win: the first
+        PUT commits and the loser gets ``PreconditionFailed`` and returns
+        False without overwriting the committed payload.
+        """
+        body = _json_body(payload)
+        try:
+            self._client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=body,
+                ContentType="application/json",
+                IfNoneMatch="*",
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "PreconditionFailed":
+                return False
+            raise StorageError(f"failed to write object {bucket}/{key}") from exc
+        except BotoCoreError as exc:
+            raise StorageError(f"failed to write object {bucket}/{key}") from exc
         return True
 
     def write_json(self, bucket: str, key: str, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        body = _json_body(payload)
         self._put(bucket, key, body, "application/json")
 
     def read_json(self, bucket: str, key: str) -> dict[str, Any]:
@@ -110,3 +127,7 @@ class S3Storage:
 def _is_not_found(exc: ClientError) -> bool:
     error = exc.response.get("Error", {})
     return error.get("Code") in _NOT_FOUND_CODES
+
+
+def _json_body(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")

@@ -186,3 +186,37 @@ def test_missing_columns_are_rejected() -> None:
     )
     with pytest.raises(DataValidationError):
         repository.load(["SPY"], window_days=5)
+
+
+def _table_with_source(
+    rows: list[tuple[date, str, float]],
+    source: str,
+) -> pa.Table:
+    return _table(rows).replace_schema_metadata({b"source": source.encode("utf-8")})
+
+
+def test_collects_the_source_metadata_of_the_consumed_partitions() -> None:
+    storage, repository = _repository()
+    storage.write_parquet(
+        "silver",
+        "year=2024/month=01/day=03/returns.parquet",
+        _table_with_source(_rows(2), "alpaca"),
+    )
+    matrix = repository.load(["SPY", "QQQ"], window_days=2)
+    assert matrix.sources == frozenset({"alpaca"})
+
+
+def test_collects_mixed_sources_across_partitions() -> None:
+    storage, repository = _repository()
+    storage.write_parquet(
+        "silver",
+        "year=2024/month=01/day=03/returns.parquet",
+        _table_with_source([(date(2024, 1, 3), "SPY", 0.001)], "alpaca"),
+    )
+    storage.write_parquet(
+        "silver",
+        "year=2024/month=01/day=04/returns.parquet",
+        _table_with_source([(date(2024, 1, 4), "SPY", 0.002)], "yfinance"),
+    )
+    matrix = repository.load(["SPY"], window_days=2)
+    assert matrix.sources == frozenset({"alpaca", "yfinance"})

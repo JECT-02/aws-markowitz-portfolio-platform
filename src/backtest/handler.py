@@ -7,6 +7,7 @@ from typing import Protocol
 
 from backtest.core.artifacts import S3BacktestWriter
 from backtest.core.models import BacktestReport
+from backtest.core.sources import resolve_report_source
 from backtest.core.validation import TemporalValidation, ValidationResult
 from common.clock import Clock, SystemClock
 from common.config import (
@@ -19,7 +20,7 @@ from common.config import (
 from common.env import load_env_file
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
-from common.models import DataSource, RunMetadata
+from common.models import RunMetadata
 from common.storage import S3Storage
 from optimizer.core.repository import ReturnsMatrix, SilverReturnsRepository
 
@@ -59,13 +60,6 @@ def run_backtest(
     deps: BacktestDependencies,
 ) -> dict[str, object]:
     """Run the weekly temporal validation and persist the gold report."""
-    metadata = RunMetadata(
-        run_id=resolve_run_id(event),
-        run_date=resolve_run_date(event, deps.clock),
-        code_version=deps.code_version,
-        source=DataSource.ALPACA,
-        fetched_at=deps.clock.now(),
-    )
     required_history = max(
         max(deps.strategy.validation_windows) * 2,
         deps.strategy.window_days,
@@ -74,6 +68,15 @@ def run_backtest(
         deps.universe.tickers,
         window_days=required_history,
         max_days=deps.strategy.ingest_lookback_days,
+    )
+    metadata = RunMetadata(
+        run_id=resolve_run_id(event),
+        run_date=resolve_run_date(event, deps.clock),
+        code_version=deps.code_version,
+        # The report is attributed to the source(s) actually recorded in the
+        # consumed silver partitions, never to a hardcoded default (7.3).
+        source=resolve_report_source(matrix.sources),
+        fetched_at=deps.clock.now(),
     )
     result = deps.validation.run(matrix)
     report = BacktestReport.from_validation_result(result, metadata, deps.clock.now())
