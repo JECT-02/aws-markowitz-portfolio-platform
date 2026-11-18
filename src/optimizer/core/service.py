@@ -7,7 +7,7 @@ import numpy as np
 
 from common.clock import Clock
 from common.config import StrategyConfig, UniverseConfig
-from common.errors import DataValidationError, InfeasibleError
+from common.errors import DataValidationError, InfeasibleError, StorageError
 from common.logging import get_logger
 from common.models import RunMetadata
 from common.storage import ObjectStorage
@@ -171,11 +171,12 @@ class OptimizerService:
         return proposal
 
     def _write(self, proposal: Proposal, reference_prices: Mapping[str, float]) -> None:
-        # Run-partition artifacts are first-write-wins so a rerun of the same
-        # run date never mixes proposals; only the pointer must be refreshed.
+        # Run-partition artifacts are first-write-wins except that a rerun
+        # of the same PENDING proposal may correct a stale version (N-22);
+        # only the pointer refreshes unconditionally.
         payload = proposal.model_dump(mode="json")
         key = f"run_date={proposal.run_date.isoformat()}/proposal.json"
-        self._storage.write_json_if_absent(self._gold_bucket, key, payload)
+        self._write_correctable(self._gold_bucket, key, payload, proposal)
         self._storage.write_json(self._gold_bucket, "latest.json", payload)
         prices_key = f"run_date={proposal.run_date.isoformat()}/prices.json"
         self._storage.write_json_if_absent(
@@ -184,6 +185,40 @@ class OptimizerService:
             {
                 "prices": {symbol: price for symbol, price in sorted(reference_prices.items())},
             },
+        )
+
+    def _write_correctable(
+        self,
+        bucket: str,
+        key: str,
+        payload: dict[str, object],
+        proposal: Proposal,
+    ) -> None:
+        """Create the artifact, or overwrite it while its proposal is unexecuted.
+
+        ``PENDING``/``NO_REBALANCE`` proposals are the correctable set (N-22);
+        EXECUTING/EXECUTED/PARTIAL/FAILED artifacts are final.
+        """
+        if not self._storage.exists(bucket, key):
+            self._storage.write_json_if_absent(bucket, key, payload)
+            return
+        try:
+            existing = self._storage.read_json(bucket, key)
+        except StorageError:
+            logger.warning(
+                "unreadable gold artifact stays untouched",
+                extra={"key": key},
+            )
+            return
+        if (
+            existing.get("status") in {"PENDING", "NO_REBALANCE"}
+            and existing.get("proposal_id") == proposal.proposal_id
+        ):
+            self._storage.write_json(bucket, key, payload)
+            return
+        logger.warning(
+            "gold artifact holds a final proposal and stays untouched",
+            extra={"key": key},
         )
 
 

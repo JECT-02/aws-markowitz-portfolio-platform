@@ -266,3 +266,28 @@ def test_service_keeps_a_valid_proposal_when_metrics_are_undefined() -> None:
     metrics = proposal.metrics["optimizer"]
     assert metrics.sortino_ratio is None
     assert metrics.calmar_ratio is None
+
+
+def test_second_run_with_the_same_id_corrects_the_gold_partition() -> None:
+    """N-22: a rerun replaces the stale PENDING artifact and the pointer."""
+    service, _, storage, _ = _service()
+    first_actual = {symbol: 1.0 / len(SYMBOLS) for symbol in SYMBOLS}
+    second_actual = {symbol: first_actual[symbol] * 0.95 for symbol in SYMBOLS}
+    service.run(_metadata(), first_actual)
+    second = service.run(_metadata(), second_actual)
+    partition = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert partition["proposal_id"] == second.proposal_id
+    assert partition["actual_weights"]["SPY"] == pytest.approx(second_actual["SPY"])
+    pointer = storage.json_objects[("gold", "latest.json")]
+    assert pointer["proposal_id"] == second.proposal_id
+
+
+def test_a_final_gold_artifact_stays_untouched() -> None:
+    service, _, storage, _ = _service()
+    storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")] = {
+        "status": "EXECUTED",
+        "proposal_id": "2025-01-02-run-1",
+    }
+    service.run(_metadata())
+    partition = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert partition["status"] == "EXECUTED"
