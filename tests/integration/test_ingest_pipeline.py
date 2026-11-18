@@ -98,7 +98,7 @@ def test_ingest_then_clean_writes_silver(
     )
     clean = CleanService(storage, "bronze", "silver")
     result = clean.run(metadata, ["SPY"], 2)
-    assert result.partitions == ["year=2024/month=01/returns.parquet"]
+    assert result.partitions == ["year=2024/month=01/day=03/returns.parquet"]
     table = storage.read_parquet("silver", result.partitions[0])
     assert table.num_rows == 1
     assert table.column("log_return").to_pylist()[0] == pytest.approx(0.09531017980432493)
