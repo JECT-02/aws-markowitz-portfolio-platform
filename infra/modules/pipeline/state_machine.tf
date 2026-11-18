@@ -345,7 +345,9 @@ resource "aws_scheduler_schedule" "monitor" {
     mode = "OFF"
   }
 
-  schedule_expression          = "cron(0/15 9-16 ? * MON-FRI *)"
+  # L-14: the market closes at 16:00 ET, so the 16:00-16:45 window only
+  # produced no-op invocations; the fast loop runs 09:30-15:45 ET.
+  schedule_expression          = "cron(0/15 9-15 ? * MON-FRI *)"
   schedule_expression_timezone = local.schedule_timezone
 
   target {

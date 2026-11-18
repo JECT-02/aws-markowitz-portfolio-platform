@@ -58,15 +58,14 @@ run "config_js_is_never_cached" {
   }
 }
 
-run "spa_routing_errors_fall_back_to_index" {
+run "missing_assets_return_real_errors" {
   command = plan
 
+  # L-13: the single-page demo has no deep links, so a missing asset must
+  # return its real 403/404 instead of index.html with a confusing 200.
   assert {
-    condition = alltrue([
-      for response in aws_cloudfront_distribution.spa.custom_error_response :
-      response.response_page_path == "/index.html" && response.response_code == 200
-    ])
-    error_message = "403/404 must fall back to index.html (SPA routing)."
+    condition     = length(aws_cloudfront_distribution.spa.custom_error_response) == 0
+    error_message = "The SPA fallback must not rewrite asset errors as 200."
   }
 }
 

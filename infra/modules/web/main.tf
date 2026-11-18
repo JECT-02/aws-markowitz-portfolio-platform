@@ -195,19 +195,10 @@ resource "aws_cloudfront_distribution" "spa" {
     cloudfront_default_certificate = true
   }
 
-  custom_error_response {
-    error_code            = 403
-    response_page_path    = "/index.html"
-    response_code         = 200
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_page_path    = "/index.html"
-    response_code         = 200
-    error_caching_min_ttl = 0
-  }
+  # L-13: the SPA is a single page without client-side routing, so there are
+  # no deep links to rewrite; a missing asset must return its real 403/404
+  # instead of index.html with a 200, which only confused the browser.
+  # (Navigation always lands on the exact / or /index.html origin path.)
 
   tags = local.tags
 }

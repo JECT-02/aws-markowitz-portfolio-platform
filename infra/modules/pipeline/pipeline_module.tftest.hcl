@@ -328,7 +328,7 @@ run "monitor_schedule_uses_the_15_minute_ny_cron" {
   command = plan
 
   assert {
-    condition     = aws_scheduler_schedule.monitor.schedule_expression == "cron(0/15 9-16 ? * MON-FRI *)"
+    condition     = aws_scheduler_schedule.monitor.schedule_expression == "cron(0/15 9-15 ? * MON-FRI *)"
     error_message = "The fast loop must fire every 15 minutes on market weekdays."
   }
 
