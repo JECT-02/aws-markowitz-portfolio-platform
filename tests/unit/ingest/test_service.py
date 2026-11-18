@@ -110,20 +110,22 @@ def test_missing_symbol_is_quarantined() -> None:
     assert record["reason_code"] == "no_data"
 
 
-def test_invalid_series_keeps_bronze_and_quarantines() -> None:
+def test_invalid_series_never_reaches_bronze_and_is_quarantined() -> None:
     service, storage = _service(_FakeSource("alpaca", [_raw(close=0.0)]))
     result = service.run(_metadata(), ["SPY"], date(2024, 1, 2), date(2024, 1, 2))
-    key = bronze_object_key(date(2024, 1, 2), DataSource.ALPACA, "SPY")
     assert result.accepted == {}
-    assert key in storage.objects["bronze"]
+    # AGENTS.md 7.1: rejected payloads belong to quarantine, not to Bronze.
+    assert storage.objects.get("bronze", {}) == {}
     record = storage.objects["quarantine"][result.quarantined["SPY"]]
     assert record["reason_code"] == "invalid_data"
+    assert record["payload"]  # the rejected raw payload is preserved
 
 
 def test_invalid_payload_is_quarantined() -> None:
     raw = RawBarSeries(symbol="SPY", payload=[{"symbol": "SPY"}])
     service, storage = _service(_FakeSource("alpaca", [raw]))
     result = service.run(_metadata(), ["SPY"], date(2024, 1, 2), date(2024, 1, 2))
+    assert storage.objects.get("bronze", {}) == {}
     record = storage.objects["quarantine"][result.quarantined["SPY"]]
     assert record["reason_code"] == "invalid_data"
 

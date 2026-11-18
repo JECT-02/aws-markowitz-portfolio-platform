@@ -64,15 +64,6 @@ class IngestService:
                     [],
                 )
                 continue
-            bronze_key = bronze_object_key(run_metadata.run_date, source, symbol)
-            self._storage.write_json_if_absent(
-                self._bronze_bucket,
-                bronze_key,
-                {
-                    "metadata": run_metadata.model_dump(mode="json"),
-                    "bars": _json_payload(raw.payload),
-                },
-            )
             try:
                 validate_bar_series(parse_series(raw))
             except DataValidationError as exc:
@@ -88,6 +79,18 @@ class IngestService:
                     extra={"symbol": symbol, "reason": "invalid_data", "detail": str(exc)},
                 )
                 continue
+            # Only validated payloads reach Bronze: the raw layer stays the
+            # immutable source of accepted data and rejected payloads live in
+            # quarantine with a reason (AGENTS.md section 7.1).
+            bronze_key = bronze_object_key(run_metadata.run_date, source, symbol)
+            self._storage.write_json_if_absent(
+                self._bronze_bucket,
+                bronze_key,
+                {
+                    "metadata": run_metadata.model_dump(mode="json"),
+                    "bars": _json_payload(raw.payload),
+                },
+            )
             accepted[symbol] = bronze_key
         return IngestResult(
             metadata=run_metadata,
