@@ -62,7 +62,7 @@ tf-test:
 	cd infra/modules/web && terraform test
 
 tf-plan:
-	cd infra/envs/$(ENV) && terraform init && terraform plan -out=tfplan
+	cd infra/envs/$(ENV) && terraform init -backend-config=backend.hcl && terraform plan -out=tfplan
 
 run-optimizer-local:
 	uv run python -m optimizer.local

@@ -86,7 +86,11 @@ jobs:
       - name: Terraform plan (dev)
         run: |
           cd infra/envs/dev
-          terraform init
+          if [ -z "${{ vars.TERRAFORM_BACKEND_BUCKET }}" ]; then
+            echo "::error::Set the repository variable TERRAFORM_BACKEND_BUCKET (infra/bootstrap output)."
+            exit 1
+          fi
+          terraform init -backend-config="bucket=${{ vars.TERRAFORM_BACKEND_BUCKET }}"
           terraform plan -out=tfplan
           terraform show -json tfplan > tfplan.json
       - name: Upload plan for review

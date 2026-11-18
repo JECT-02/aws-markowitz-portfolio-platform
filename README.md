@@ -87,12 +87,15 @@ lookback con la ventana y la validación). Los tickers y el tope por activo
 ## Despliegue (pasos del humano)
 
 1. `infra/bootstrap` (una vez): bucket de estado + rol OIDC de CI.
-2. Claves de Alpaca en SSM (`/portfolio-markowitz/dev/alpaca/...`).
-3. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
-4. Construir y publicar las imágenes Docker en ECR (tag inmutable, nunca
+2. Crea `infra/envs/dev/backend.hcl` con el nombre real del bucket de estado
+   (`bucket = "<state_bucket_name>"`; el archivo está en `.gitignore`) y el
+   repositorio con la variable `TERRAFORM_BACKEND_BUCKET` para el plan de CI.
+3. Claves de Alpaca en SSM (`/portfolio-markowitz/dev/alpaca/...`).
+4. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
+5. Construir y publicar las imágenes Docker en ECR (tag inmutable, nunca
    `latest`) y fijar `OPTIMIZER_IMAGE_TAG`.
-5. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).
-6. Crear tu usuario en Cognito y asignarlo al grupo `executors` (aprueba el
+6. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).
+7. Crear tu usuario en Cognito y asignarlo al grupo `executors` (aprueba el
    rebalanceo en la demo vía API).
 
 ## Pruebas
