@@ -59,19 +59,33 @@ class ValidationResult:
     selected: ParameterCandidate
     candidates: list[ParameterCandidate]
     sensitivity: dict[int, PeriodMetrics]
+    # Metrics of the selected candidate over the whole validation segment;
+    # the folds' own metrics live in candidates[].fold_metrics (N-09).
+    validation_metrics: dict[str, PeriodMetrics]
+    # Start/end date of each segment ([start, end) for train and validation;
+    # test runs from its start to the last observation).
+    periods: dict[str, tuple[date, date]]
     in_sample_metrics: dict[str, PeriodMetrics]
     out_of_sample_metrics: dict[str, PeriodMetrics]
 
 
 class TemporalValidation:
-    """Selects hyperparameters on validation and reports on held-out test data."""
+    """Selects hyperparameters on a temporal holdout and reports on held-out data.
+
+    Explicit limitation (N-10): the selection is a single-level temporal
+    holdout with expanding-window folds, not a nested (two-level) scheme —
+    the grid is evaluated once over one validation segment and the best
+    candidate is then measured on untouched test data. A fully nested loop
+    was descarted by the compute budget of the weekly Lambda
+    (MAX_GRID_EVALUATIONS); the name and docs must not overstate it.
+    """
 
     def __init__(self, universe: UniverseConfig, strategy: StrategyConfig) -> None:
         self._universe = universe
         self._strategy = strategy
 
     def run(self, matrix: ReturnsMatrix) -> ValidationResult:
-        """Evaluate the configured grid with nested temporal folds."""
+        """Evaluate the configured grid over the temporal validation segment."""
         started = time.perf_counter()
         train_end, validation_end = _split_indices(
             matrix,
@@ -149,6 +163,17 @@ class TemporalValidation:
             }
         )
         engine = BacktestEngine(selected_strategy, self._universe)
+        validation_metrics: dict[str, PeriodMetrics] = {}
+        validation_run = engine.run(_slice(matrix, 0, validation_end), "optimizer")
+        selected_validation = _period_metrics(
+            validation_run.dates,
+            validation_run.returns,
+            matrix.dates[train_end],
+            matrix.dates[validation_end],
+            selected_strategy.risk_free_rate_annual,
+        )
+        if selected_validation is not None:
+            validation_metrics["optimizer"] = selected_validation
         in_sample: dict[str, PeriodMetrics] = {}
         out_of_sample: dict[str, PeriodMetrics] = {}
         for mode in ("optimizer", "equal_weight", "minimum_variance", "spy"):
@@ -186,6 +211,12 @@ class TemporalValidation:
             selected=selected,
             candidates=candidates,
             sensitivity=_sensitivity(candidates),
+            validation_metrics=validation_metrics,
+            periods={
+                "train": (matrix.dates[0], matrix.dates[train_end]),
+                "validation": (matrix.dates[train_end], matrix.dates[validation_end]),
+                "test": (matrix.dates[validation_end], matrix.dates[-1]),
+            },
             in_sample_metrics=in_sample,
             out_of_sample_metrics=out_of_sample,
         )

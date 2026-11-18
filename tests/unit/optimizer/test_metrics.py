@@ -110,14 +110,13 @@ def test_zero_volatility_is_rejected() -> None:
         sharpe_ratio(np.array([0.01, 0.01]), 0.0)
 
 
-def test_no_downside_is_rejected() -> None:
-    with pytest.raises(DataValidationError):
-        sortino_ratio(np.array([0.01, 0.02]), 0.0)
+def test_sortino_ratio_is_none_without_downside() -> None:
+    """N-11: an all-upside window yields None instead of aborting."""
+    assert sortino_ratio(np.array([0.01, 0.02]), 0.0) is None
 
 
-def test_zero_drawdown_is_rejected() -> None:
-    with pytest.raises(DataValidationError):
-        calmar_ratio(np.array([0.01, 0.02]))
+def test_calmar_ratio_is_none_without_drawdown() -> None:
+    assert calmar_ratio(np.array([0.01, 0.02])) is None
 
 
 def test_turnover_shape_mismatch_is_rejected() -> None:

@@ -229,3 +229,14 @@ def test_validation_requires_out_of_sample_optimizer_metrics(
     monkeypatch.setattr(validation_module.BacktestEngine, "run", truncated_run)
     with pytest.raises(DataValidationError, match="no optimizer observations"):
         _validation().run(matrix)
+
+
+def test_validation_reports_the_validation_segment_and_periods() -> None:
+    """N-09: the auditable selection window and its dates reach the result."""
+    result = _validation().run(_matrix(rows=150))
+    assert set(result.validation_metrics) == {"optimizer"}
+    train_start, train_end = result.periods["train"]
+    validation_start, validation_end = result.periods["validation"]
+    test_start, test_end = result.periods["test"]
+    assert train_start < train_end <= validation_start < validation_end <= test_start <= test_end
+    assert result.periods["test"][1] == _matrix(rows=150).dates[-1]

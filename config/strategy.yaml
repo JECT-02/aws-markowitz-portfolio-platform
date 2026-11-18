@@ -23,7 +23,7 @@ max_forward_fill_days: 2           # max consecutive days a missing price may be
 window_days: 252                   # rolling estimation window in trading days
 rebalance_l1_threshold: 0.10       # rebalance proposed only if ||w* - w_actual||_1 > 0.10 (pinned by section 5.5)
 ingest_lookback_days: 1000         # calendar days fetched per run; the backtest needs ~630 trading days (0.8 * obs >= 2 * 252), see the guard in infra/envs/dev/main.tf
-validation_gammas: [1.0, 2.0]      # nested temporal-validation grid
+validation_gammas: [1.0, 2.0]      # temporal-holdout validation grid (single level, not nested; N-10)
 validation_lambdas: [0.0, 0.001]
 validation_alphas: [0.0, 0.5]
 validation_windows: [126, 252]

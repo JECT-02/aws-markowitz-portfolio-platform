@@ -95,6 +95,12 @@ def _result() -> ValidationResult:
         selected=_candidate(),
         candidates=[_candidate()],
         sensitivity={126: _period(0.9)},
+        validation_metrics={"optimizer": _period(0.75)},
+        periods={
+            "train": (date(2026, 1, 5), date(2026, 2, 2)),
+            "validation": (date(2026, 2, 2), date(2026, 2, 9)),
+            "test": (date(2026, 2, 9), date(2026, 2, 9)),
+        },
         in_sample_metrics={"optimizer": _period(1.1), "spy": _period(0.9)},
         out_of_sample_metrics={"optimizer": _period(0.8)},
     )

@@ -63,17 +63,22 @@ def sharpe_ratio(log_returns: np.ndarray, risk_free_rate_annual: float) -> float
     return float(excess / daily_volatility * np.sqrt(TRADING_DAYS))
 
 
-def sortino_ratio(log_returns: np.ndarray, risk_free_rate_annual: float) -> float:
-    """Return the annualized Sortino ratio using downside deviation."""
+def sortino_ratio(log_returns: np.ndarray, risk_free_rate_annual: float) -> float | None:
+    """Return the annualized Sortino ratio using downside deviation.
+
+    Returns ``None`` when the period has no downside observations (an
+    all-upside window): a descriptive metric must never abort a valid
+    proposal (N-11).
+    """
     values = _as_series(log_returns)
     daily_risk_free = math.log1p(risk_free_rate_annual) / TRADING_DAYS
     excess = values - daily_risk_free
     downside = excess[excess < 0.0]
     if downside.size == 0:
-        raise DataValidationError("no downside observations to compute Sortino")
+        return None
     downside_deviation = float(np.sqrt(np.mean(np.square(downside))))
     if downside_deviation <= 0.0:
-        raise DataValidationError("downside deviation must be positive")
+        return None
     return float(excess.mean() / downside_deviation * np.sqrt(TRADING_DAYS))
 
 
@@ -86,11 +91,16 @@ def max_drawdown(log_returns: np.ndarray) -> float:
     return float(drawdowns.max())
 
 
-def calmar_ratio(log_returns: np.ndarray) -> float:
-    """Return the annualized return divided by the maximum drawdown."""
+def calmar_ratio(log_returns: np.ndarray) -> float | None:
+    """Return the annualized return divided by the maximum drawdown.
+
+    Returns ``None`` when the drawdown is at the numerical floor (a period
+    without drawdown): a descriptive metric must never abort a valid
+    proposal (N-11).
+    """
     drawdown = max_drawdown(log_returns)
     if drawdown <= MAX_DRAWDOWN_FLOOR:
-        raise DataValidationError("maximum drawdown is too small to compute Calmar")
+        return None
     return float(annualized_return(log_returns) / drawdown)
 
 

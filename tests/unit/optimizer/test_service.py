@@ -248,3 +248,21 @@ def test_service_rejects_partial_reference_prices() -> None:
     service, _, _, _ = _service(prices=prices)
     with pytest.raises(DataValidationError, match=SYMBOLS[-1]):
         service.run(_metadata())
+
+
+def test_service_keeps_a_valid_proposal_when_metrics_are_undefined() -> None:
+    """N-11: an all-upside window leaves Sortino/Calmar undefined, not failed."""
+    generator = np.random.default_rng(9)
+    values = 0.0005 + np.abs(generator.normal(0.0, 0.008, size=(80, len(SYMBOLS))))
+    matrix = ReturnsMatrix(
+        symbols=list(SYMBOLS),
+        dates=[date(2024, 9, 1) for _ in range(80)],
+        values=values,
+        excluded={},
+    )
+    service, _, _, _ = _service(matrix, list(SYMBOLS))
+    proposal = service.run(_metadata())
+    assert proposal.status in {"PENDING", "NO_REBALANCE"}
+    metrics = proposal.metrics["optimizer"]
+    assert metrics.sortino_ratio is None
+    assert metrics.calmar_ratio is None

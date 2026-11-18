@@ -22,9 +22,11 @@ class PortfolioMetrics(BaseModel):
     annualized_return: float
     annualized_volatility: float
     sharpe_ratio: float
-    sortino_ratio: float
+    # None = undefined for the period (no downside observations / drawdown
+    # at the numerical floor); a descriptive metric never aborts a proposal.
+    sortino_ratio: float | None
     max_drawdown: float
-    calmar_ratio: float
+    calmar_ratio: float | None
     herfindahl_index: float
 
 

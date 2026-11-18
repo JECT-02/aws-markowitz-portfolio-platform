@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,6 +20,19 @@ class BacktestPeriodMetrics(BaseModel):
     annualized_volatility: float
     sharpe_ratio: float
     max_drawdown: float
+
+
+class BacktestSegment(BaseModel):
+    """Start/end dates of one backtest segment (N-09).
+
+    ``start`` is included; ``end`` is the exclusive bound of the segment
+    except for ``test``, whose ``end`` is the last observation date.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    start: date
+    end: date
 
 
 class BacktestCandidate(BaseModel):
@@ -57,6 +70,10 @@ class BacktestReport(BaseModel):
     selected: BacktestCandidate
     comparison: list[BacktestComparisonRow]
     sensitivity: dict[str, BacktestPeriodMetrics]
+    # Validation-segment metrics of the selected candidate (N-09): the
+    # auditable period where the hyperparameters were chosen.
+    validation: dict[str, BacktestPeriodMetrics]
+    periods: dict[str, BacktestSegment]
     in_sample: dict[str, BacktestPeriodMetrics]
     out_of_sample: dict[str, BacktestPeriodMetrics]
     candidates: list[BacktestCandidate]
@@ -83,6 +100,11 @@ class BacktestReport(BaseModel):
             sensitivity={
                 str(window): BacktestPeriodMetrics(**asdict(metrics))
                 for window, metrics in sorted(result.sensitivity.items())
+            },
+            validation=_period_metrics(result.validation_metrics),
+            periods={
+                name: BacktestSegment(start=start, end=end)
+                for name, (start, end) in sorted(result.periods.items())
             },
             in_sample=_period_metrics(result.in_sample_metrics),
             out_of_sample=_period_metrics(result.out_of_sample_metrics),

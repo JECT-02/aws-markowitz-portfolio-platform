@@ -19,7 +19,8 @@ from common.env import require_variable
 from common.errors import ConfigurationError
 
 TRADING_DAYS_PER_YEAR = 252
-# Mirrors the 80% boundary of the nested temporal split
+# Mirrors the 80% boundary of the temporal holdout split (N-10: the
+# hyperparameter selection is a single-level holdout, not a nested scheme)
 # (backtest.core.validation): the validation period must hold at least two
 # full windows of observations, so the daily ingest must be able to supply
 # enough history. Single source shared by both sides.

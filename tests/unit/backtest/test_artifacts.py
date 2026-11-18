@@ -56,6 +56,12 @@ def _result() -> ValidationResult:
         selected=_candidate(),
         candidates=[_candidate(), _candidate(gamma=8.0, window=63, sharpe=0.6)],
         sensitivity={126: _period(0.7), 63: _period(0.5)},
+        validation_metrics={"optimizer": _period(0.75)},
+        periods={
+            "train": (date(2025, 8, 4), date(2026, 2, 2)),
+            "validation": (date(2026, 2, 2), date(2026, 2, 7)),
+            "test": (date(2026, 2, 7), date(2026, 2, 7)),
+        },
         in_sample_metrics={"optimizer": _period(1.1), "spy": _period(0.9)},
         out_of_sample_metrics={"optimizer": _period(0.8)},
     )
@@ -86,6 +92,10 @@ def test_report_carries_the_validation_outcome() -> None:
     assert report.selected.validation_sharpe == pytest.approx(0.8)
     assert len(report.candidates) == 2
     assert report.sensitivity == {"126": _pydantic_period(0.7), "63": _pydantic_period(0.5)}
+    assert report.validation == {"optimizer": _pydantic_period(0.75)}
+    assert report.periods["train"].start == date(2025, 8, 4)
+    assert report.periods["validation"].end == date(2026, 2, 7)
+    assert report.periods["test"].start == date(2026, 2, 7)
     assert report.in_sample == {"optimizer": _pydantic_period(1.1), "spy": _pydantic_period(0.9)}
     assert report.out_of_sample == {"optimizer": _pydantic_period(0.8)}
 

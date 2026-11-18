@@ -12,7 +12,7 @@ ni se empaqueta en las Lambdas.
 | `metrics` | `/metrics` | una fila por (modo, métrica) |
 | `monitor` | `/monitor` | una fila por ticker con pesos propuestos vs en vivo |
 | `backtest` | `/backtest` | una fila por modo comparado (in/out de sample) |
-| `backtest_candidates` | `/backtest` | una fila por combinación evaluada en la validación anidada |
+| `backtest_candidates` | `/backtest` | una fila por combinación evaluada en la validación temporal (holdout) |
 
 Las métricas de folds individuales y la sensibilidad por ventana del backtest
 no se aplanan (se agregan después si se necesitan).

@@ -1,4 +1,4 @@
-# Weekly backtest loop (module `backtest`): nested temporal validation over the
+# Weekly backtest loop (module `backtest`): temporal holdout validation over the
 # silver lakehouse with a gold-layer report, triggered by its own weekly
 # EventBridge Scheduler. Kept out of the daily pipeline by design (AGENTS.md
 # section 5.6: the backtest never runs inside the daily optimizer lambda).
@@ -238,7 +238,7 @@ resource "aws_cloudwatch_log_group" "backtest" {
 resource "aws_lambda_function" "backtest" {
   function_name = "${var.project}-backtest-${var.env}"
   role          = aws_iam_role.backtest.arn
-  description   = "Weekly nested temporal validation with the gold-layer report"
+  description   = "Weekly temporal holdout validation with the gold-layer report"
 
   package_type  = "Image"
   architectures = ["x86_64"]
