@@ -89,7 +89,7 @@ def _deps(service: _Service, state: _State | None = None) -> OptimizerDependenci
             "risk_free_rate_annual": 0.04,
             "max_forward_fill_days": 2,
             "window_days": 252,
-            "ingest_lookback_days": 420,
+            "ingest_lookback_days": 1000,
             "rebalance_l1_threshold": 0.10,
             "validation_gammas": [1.0],
             "validation_lambdas": [0.0],

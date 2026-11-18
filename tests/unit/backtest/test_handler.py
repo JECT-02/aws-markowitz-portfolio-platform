@@ -109,7 +109,7 @@ def _strategy() -> StrategyConfig:
             "risk_free_rate_annual": 0.04,
             "max_forward_fill_days": 2,
             "window_days": 252,
-            "ingest_lookback_days": 756,
+            "ingest_lookback_days": 1000,
             "rebalance_l1_threshold": 0.10,
             "validation_gammas": [1.0, 4.0],
             "validation_lambdas": [0.0, 0.001],
@@ -167,7 +167,7 @@ def test_backtest_loads_the_full_validation_history(gold: None) -> None:
     deps, repository = _deps(_matrix(), _FakeValidation(_result()))
     run_backtest({}, deps)  # type: ignore[arg-type]
     # window_days is not the longest validation window (252), the double of it is.
-    assert repository.calls == [(SYMBOLS, 504, 756)]
+    assert repository.calls == [(SYMBOLS, 504, 1000)]
 
 
 def test_backtest_writes_the_gold_report_from_the_clock(gold: None) -> None:

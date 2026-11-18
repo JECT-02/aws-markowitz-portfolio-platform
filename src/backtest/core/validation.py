@@ -8,7 +8,7 @@ from itertools import product
 import numpy as np
 
 from backtest.core.engine import BacktestEngine
-from common.config import StrategyConfig, UniverseConfig
+from common.config import VALIDATION_FRACTION, StrategyConfig, UniverseConfig
 from common.errors import DataValidationError
 from common.logging import get_logger
 from optimizer.core.metrics import (
@@ -22,7 +22,6 @@ from optimizer.core.repository import ReturnsMatrix
 logger = get_logger(__name__)
 
 TRAIN_FRACTION = 0.60
-VALIDATION_FRACTION = 0.80
 MIN_PERIOD_OBSERVATIONS = 2
 # The weekly backtest runs as a single Lambda with a 900 s cap and no
 # checkpoint: a grid that needs more than this many candidate-fold

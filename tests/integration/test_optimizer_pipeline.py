@@ -92,7 +92,7 @@ def _strategy() -> StrategyConfig:
             "risk_free_rate_annual": 0.04,
             "max_forward_fill_days": 2,
             "window_days": 60,
-            "ingest_lookback_days": 420,
+            "ingest_lookback_days": 1000,
             "rebalance_l1_threshold": 0.10,
             "validation_gammas": [2.0],
             "validation_lambdas": [0.001],
