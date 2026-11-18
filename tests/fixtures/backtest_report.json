@@ -89,6 +89,20 @@
       "sharpe_ratio": 0.8
     }
   },
+  "periods": {
+    "test": {
+      "end": "2026-02-07",
+      "start": "2026-02-07"
+    },
+    "train": {
+      "end": "2026-02-02",
+      "start": "2025-08-04"
+    },
+    "validation": {
+      "end": "2026-02-07",
+      "start": "2026-02-02"
+    }
+  },
   "selected": {
     "alpha": 0.5,
     "fold_metrics": [
@@ -122,6 +136,14 @@
       "annualized_volatility": 0.12,
       "max_drawdown": -0.15,
       "sharpe_ratio": 0.5
+    }
+  },
+  "validation": {
+    "optimizer": {
+      "annualized_return": 0.08,
+      "annualized_volatility": 0.12,
+      "max_drawdown": -0.15,
+      "sharpe_ratio": 0.75
     }
   }
 }

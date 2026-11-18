@@ -58,6 +58,15 @@ class BacktestPeriodMetrics(BaseModel):
     max_drawdown: float
 
 
+class BacktestSegment(BaseModel):
+    """Start/end dates of one backtest segment (mirrors backtest.core.models)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    start: date
+    end: date
+
+
 class BacktestCandidate(BaseModel):
     """One hyperparameter combination evaluated across validation folds."""
 
@@ -97,6 +106,8 @@ class BacktestReport(BaseModel):
     selected: BacktestCandidate
     comparison: list[BacktestComparisonRow]
     sensitivity: dict[str, BacktestPeriodMetrics]
+    validation: dict[str, BacktestPeriodMetrics]
+    periods: dict[str, BacktestSegment]
     in_sample: dict[str, BacktestPeriodMetrics]
     out_of_sample: dict[str, BacktestPeriodMetrics]
     candidates: list[BacktestCandidate]
