@@ -56,6 +56,7 @@ def _proposal(metadata: RunMetadata) -> Proposal:
         rebalance_required=True,
         weights={"SPY": 0.6, "QQQ": 0.4},
         actual_weights={"SPY": 0.5, "QQQ": 0.5},
+        baseline_source="state",
         drift_l1=0.2,
         benchmark_weights={},
         metrics={},

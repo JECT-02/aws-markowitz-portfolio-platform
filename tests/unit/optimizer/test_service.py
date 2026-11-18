@@ -150,6 +150,7 @@ def test_service_writes_proposal_and_latest() -> None:
     assert proposal.proposal_id == "2025-01-02-run-1"
     assert proposal.prices_ref == "2024-09-01..2024-09-01"
     assert proposal.status in {"PENDING", "NO_REBALANCE"}
+    assert proposal.baseline_source == "equal_weight_fallback"
     assert sum(proposal.weights.values()) == pytest.approx(1.0, abs=1e-6)
     assert set(proposal.metrics) == {"optimizer", "equal_weight", "minimum_variance", "spy"}
     assert proposal.drift_l1 == pytest.approx(
@@ -202,6 +203,7 @@ def test_service_accepts_actual_weights_below_one_with_cash() -> None:
     actual = {symbol: 0.16 for symbol in SYMBOLS}
     proposal = service.run(_metadata(), actual)
     assert proposal.actual_weights == pytest.approx(actual)
+    assert proposal.baseline_source == "state"
 
 
 def test_service_rejects_actual_weights_above_the_equity() -> None:

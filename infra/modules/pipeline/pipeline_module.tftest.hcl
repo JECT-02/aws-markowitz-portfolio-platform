@@ -137,6 +137,7 @@ run "state_machine_reads_the_published_stage_contract" {
         "weights",
         "drift_l1",
         "rebalance_required",
+        "baseline_source",
       ]
     }
     error_message = "The stage output contract must stay aligned with the ResultSelector paths in the ASL and the handler tests."
