@@ -41,7 +41,7 @@ coverage:
 coverage-core:
 	uv run pytest --cov=src/optimizer/core --cov=src/backtest/core --cov-report=term-missing --cov-fail-under=90
 
-check: format lint typecheck security test-unit test-property test-integration test-infra coverage
+check: format lint typecheck security test-unit test-property test-integration test-infra coverage tf-fmt tf-validate tf-lint
 
 tf-fmt:
 	terraform fmt -check -recursive infra
