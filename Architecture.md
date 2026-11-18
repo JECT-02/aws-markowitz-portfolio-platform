@@ -4,7 +4,8 @@
 
 > **Estado de la implementación (noviembre 2026).** Este documento conserva el
 > diseño de referencia; el sistema construido se desvía de él de forma
-> consciente y registrada (L-02/L-15). Lo que **existe hoy**:
+> consciente y registrada (ADR: `docs/adr/0001-recorte-alcance-demo.md`,
+> auditoría en `mistakes.md`). Lo que **existe hoy**:
 >
 > - **IaC = Terraform** (no CDK): módulos `data`, `pipeline`, `backtest`,
 >   `api` y `web` en `infra/modules/`, entorno único `dev` en
