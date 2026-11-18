@@ -118,7 +118,7 @@ class TestReconciliationValidation:
             )
 
     def test_rejects_weights_that_do_not_sum_to_one(self) -> None:
-        with pytest.raises(ValidationError, match="sum to one"):
+        with pytest.raises(ValidationError, match="account equity"):
             Reconciliation(
                 weights={"SPY": 0.5, "QQQ": 0.6},
                 account_value=100.0,

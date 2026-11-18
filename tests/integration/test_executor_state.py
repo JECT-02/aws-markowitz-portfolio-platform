@@ -162,9 +162,17 @@ class TestWriteReconciledState:
         assert item["account_value"]["N"] == "10000.0"
         assert item["reconciled_at"]["S"] == NOW.isoformat()
 
-    def test_rejects_weights_not_summing_to_one(self, state_table) -> None:
-        with pytest.raises(StorageError, match="sum to one"):
-            _state().write_reconciled_state({"SPY": 0.5, "QQQ": 0.4}, 10_000.0, NOW)
+    def test_rejects_weights_above_the_account_equity(self, state_table) -> None:
+        with pytest.raises(StorageError, match="account equity"):
+            _state().write_reconciled_state({"SPY": 0.6, "QQQ": 0.5}, 10_000.0, NOW)
+
+    def test_accepts_weights_below_one_with_uninvested_cash(self, state_table) -> None:
+        _state().write_reconciled_state({"SPY": 0.5, "QQQ": 0.4}, 10_000.0, NOW)
+        item = state_table.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        assert float(item["weights"]["M"]["SPY"]["N"]) == pytest.approx(0.5)
 
     def test_rejects_negative_weights(self, state_table) -> None:
         with pytest.raises(StorageError, match="non-negative"):
@@ -265,8 +273,8 @@ class TestStorageFailures:
             state.write_reconciled_state({}, 100.0, NOW)
         with pytest.raises(StorageError, match="finite and non-negative"):
             state.write_reconciled_state({"SPY": -1.0}, 100.0, NOW)
-        with pytest.raises(StorageError, match="sum to one"):
-            state.write_reconciled_state({"SPY": 0.6, "QQQ": 0.5}, 100.0, NOW)
+        with pytest.raises(StorageError, match="account equity"):
+            state.write_reconciled_state({"SPY": 1.1}, 100.0, NOW)
         with pytest.raises(StorageError, match="account value"):
             state.write_reconciled_state({"SPY": 1.0}, 0.0, NOW)
 

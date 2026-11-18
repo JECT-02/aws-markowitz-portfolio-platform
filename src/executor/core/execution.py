@@ -218,14 +218,20 @@ class RebalanceService:
     def _reconcile(self, current_prices: Mapping[str, float]) -> Reconciliation | None:
         positions = self._broker.get_positions()
         equity = self._broker.get_account_equity()
+        if not positions or equity <= 0.0:
+            logger.warning(
+                "reconciliation skipped: no positions or non-positive equity",
+                extra={"positions": len(positions)},
+            )
+            return None
+        # Weights are fractions of the account equity, so uninvested cash is
+        # the remainder and sum(weights) <= 1. Dividing by the position total
+        # would overstate every holding whenever cash exists.
         values = {
             position.symbol: position.quantity * current_prices[position.symbol]
             for position in positions
         }
-        total = sum(values.values())
-        if total <= 0.0:
-            return None
-        weights = {symbol: value / total for symbol, value in values.items()}
+        weights = {symbol: value / equity for symbol, value in values.items()}
         return Reconciliation(
             weights=weights,
             account_value=equity,

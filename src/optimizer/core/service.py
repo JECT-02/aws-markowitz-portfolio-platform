@@ -210,8 +210,10 @@ def _resolve_actual_weights(
         raise DataValidationError("actual weights contain non-finite values")
     if float(weights.min()) < 0.0:
         raise DataValidationError("actual weights must be non-negative")
-    if abs(float(weights.sum()) - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise DataValidationError("actual weights must sum to one")
+    # Weights are fractions of the account equity; uninvested cash is the
+    # remainder, so the sum may be below one but never above it.
+    if float(weights.sum()) > 1.0 + WEIGHT_SUM_TOLERANCE:
+        raise DataValidationError("actual weights must not exceed the account equity")
     return weights
 
 

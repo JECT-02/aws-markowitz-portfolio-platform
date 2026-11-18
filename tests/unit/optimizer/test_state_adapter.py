@@ -83,7 +83,20 @@ def test_reads_current_weights(state: DynamoPortfolioState) -> None:
     assert state.read_actual_weights() == {"SPY": 0.6, "QQQ": 0.4}
 
 
-def test_rejects_weights_that_do_not_sum_to_one(state: DynamoPortfolioState) -> None:
+def test_rejects_weights_above_the_account_equity(state: DynamoPortfolioState) -> None:
+    state._client.put_item(
+        TableName=TABLE,
+        Item={
+            "pk": {"S": "STATE"},
+            "sk": {"S": "CURRENT"},
+            "weights": {"M": {"SPY": {"N": "0.6"}, "QQQ": {"N": "0.5"}}},
+        },
+    )
+    with pytest.raises(DataValidationError):
+        state.read_actual_weights()
+
+
+def test_reads_weights_below_one_with_cash(state: DynamoPortfolioState) -> None:
     state._client.put_item(
         TableName=TABLE,
         Item={
@@ -92,8 +105,7 @@ def test_rejects_weights_that_do_not_sum_to_one(state: DynamoPortfolioState) -> 
             "weights": {"M": {"SPY": {"N": "0.6"}}},
         },
     )
-    with pytest.raises(DataValidationError):
-        state.read_actual_weights()
+    assert state.read_actual_weights() == {"SPY": 0.6}
 
 
 def test_rejects_non_numeric_weights(state: DynamoPortfolioState) -> None:

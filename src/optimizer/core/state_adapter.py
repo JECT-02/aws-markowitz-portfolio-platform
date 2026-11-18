@@ -148,8 +148,10 @@ def _validate_weights(weights: Mapping[str, float]) -> None:
         raise DataValidationError("state weights must not be empty")
     if any(not math.isfinite(weight) or weight < 0.0 for weight in weights.values()):
         raise DataValidationError("state weights must be finite and non-negative")
-    if abs(math.fsum(weights.values()) - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise DataValidationError("state weights must sum to one")
+    # Weights are fractions of the account equity; uninvested cash is the
+    # remainder, so the sum may be below one but never above it.
+    if math.fsum(weights.values()) > 1.0 + WEIGHT_SUM_TOLERANCE:
+        raise DataValidationError("state weights must not exceed the account equity")
 
 
 def proposal_identifier(metadata: RunMetadata) -> str:

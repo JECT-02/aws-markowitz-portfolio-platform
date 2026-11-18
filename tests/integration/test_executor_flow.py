@@ -293,6 +293,16 @@ class TestPartialFills:
         partial = [order for order in result.orders if order.status.value == "partially_filled"]
         assert len(partial) == 1
         assert partial[0].filled_quantity < partial[0].requested_quantity
+        # Weights are fractions of the equity: the unfilled half of the TLT
+        # target stays in cash, so the reconciled sum is strictly below one.
+        total = sum(result.reconciliation.weights.values())
+        assert total == pytest.approx(0.9, abs=1e-6)
+        state_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        stored = {symbol: float(value["N"]) for symbol, value in state_item["weights"]["M"].items()}
+        assert sum(stored.values()) == pytest.approx(total, abs=1e-6)
 
     def test_rejected_all_orders_fail_the_execution(self, env) -> None:
         client, s3 = env

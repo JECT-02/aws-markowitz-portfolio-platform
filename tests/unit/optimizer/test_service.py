@@ -197,10 +197,17 @@ def test_service_requires_five_assets() -> None:
         service.run(_metadata())
 
 
-def test_service_rejects_actual_weights_that_do_not_sum_to_one() -> None:
+def test_service_accepts_actual_weights_below_one_with_cash() -> None:
+    service, _, _, _ = _service()
+    actual = {symbol: 0.16 for symbol in SYMBOLS}
+    proposal = service.run(_metadata(), actual)
+    assert proposal.actual_weights == pytest.approx(actual)
+
+
+def test_service_rejects_actual_weights_above_the_equity() -> None:
     service, _, _, _ = _service()
     with pytest.raises(DataValidationError):
-        service.run(_metadata(), {"SPY": 0.5})
+        service.run(_metadata(), {"SPY": 0.6, "QQQ": 0.5})
 
 
 def test_service_rejects_negative_actual_weights() -> None:
