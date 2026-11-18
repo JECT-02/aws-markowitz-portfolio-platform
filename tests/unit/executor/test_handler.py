@@ -17,14 +17,12 @@ from common.errors import (
     ProposalExpired,
     ProposalNotPending,
 )
-from common.storage import S3Storage
 from executor.core.execution import RebalanceService
 from executor.core.models import (
     ExecutionResult,
     ProposalStatus,
     Reconciliation,
 )
-from executor.core.prices import GoldPricesRepository
 from executor.core.simulated import SimulatedBroker
 from executor.core.state import DynamoExecutionState
 from executor.handler import ExecutorDependencies, run_executor
@@ -173,14 +171,7 @@ def test_success_returns_the_result() -> None:
 @mock_aws
 def test_end_to_end_flow_through_the_handler() -> None:
     client = _create_state_table()
-    s3 = boto3.client("s3", region_name="us-east-1")
-    s3.create_bucket(Bucket="gold")
     _put_pending_proposal(client)
-    s3.put_object(
-        Bucket="gold",
-        Key="run_date=2026-11-13/prices.json",
-        Body=b'{"prices": {"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0}}',
-    )
     service = RebalanceService(
         state=DynamoExecutionState("portfolio-state", region_name="us-east-1"),
         broker=SimulatedBroker(
@@ -188,7 +179,6 @@ def test_end_to_end_flow_through_the_handler() -> None:
             equity=100_000.0,
             prices={"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
         ),
-        prices=GoldPricesRepository(S3Storage(s3), "gold"),
         config=_executor_config(),
         clock=FixedClock(NOW),
     )

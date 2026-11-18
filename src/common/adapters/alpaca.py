@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from alpaca.common.enums import BaseURL
 from alpaca.common.exceptions import APIError
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import Adjustment, DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestTradeRequest
+from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide as AlpacaOrderSide
 from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
@@ -173,6 +175,40 @@ class AlpacaPaperBroker:
         if not math.isfinite(price) or price <= 0.0:
             raise BrokerError(f"alpaca returned an unusable price for {symbol}: {price}")
         return price
+
+    def get_adjusted_close(self, symbol: str, as_of: date) -> float:
+        """Return the split/dividend-adjusted daily close for ``as_of``.
+
+        The adjusted basis is the one in effect today, so the result is
+        directly comparable with the live latest trade (N-15): corporate
+        actions between the proposal date and now rebalance the historical
+        series instead of distorting the executor's drift check.
+        """
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=TimeFrame(amount=1, unit=TimeFrameUnit.Day),
+            adjustment=Adjustment.ALL,
+            start=datetime(as_of.year, as_of.month, as_of.day, tzinfo=UTC),
+            end=datetime(as_of.year, as_of.month, as_of.day, tzinfo=UTC) + timedelta(days=1),
+            feed=self._feed,
+        )
+        try:
+            bars = self._data.get_stock_bars(request)
+        except APIError as exc:
+            raise BrokerError(f"adjusted close request failed for {symbol}") from exc
+        bar_set = bars.get(symbol) if isinstance(bars, dict) else None
+        series = list(getattr(bar_set, "bars", []) or [])
+        close = next(
+            (float(bar.close) for bar in reversed(series) if bar.date.date() == as_of),
+            None,
+        )
+        if close is None:
+            raise BrokerError(
+                f"alpaca returned no adjusted close for {symbol} on {as_of.isoformat()}"
+            )
+        if not math.isfinite(close) or close <= 0.0:
+            raise BrokerError(f"alpaca returned an unusable adjusted close for {symbol}: {close}")
+        return close
 
     def submit_order(
         self,

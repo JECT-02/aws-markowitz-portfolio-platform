@@ -18,10 +18,8 @@ from common.errors import (
     ProposalNotPending,
 )
 from common.models import BrokerPosition
-from common.storage import S3Storage
 from executor.core.execution import RebalanceService
 from executor.core.models import ProposalStatus
-from executor.core.prices import GoldPricesRepository
 from executor.core.simulated import SimulatedBroker
 from executor.core.state import DynamoExecutionState
 
@@ -92,14 +90,6 @@ def _put_proposal(client: Any, status: str = "PENDING") -> None:
     )
 
 
-def _put_prices(client: Any, bucket: str = "gold") -> None:
-    client.put_object(
-        Bucket=bucket,
-        Key="run_date=2026-11-13/prices.json",
-        Body=b'{"prices": {"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0}}',
-    )
-
-
 def _broker(**overrides: Any) -> SimulatedBroker:
     defaults: dict[str, Any] = {
         "positions": [
@@ -143,7 +133,6 @@ def _service(broker: SimulatedBroker, clock: Any = None) -> RebalanceService:
     return RebalanceService(
         state=DynamoExecutionState(TABLE_NAME, region_name="us-east-1"),
         broker=broker,
-        prices=GoldPricesRepository(S3Storage(boto3.client("s3", region_name="us-east-1")), "gold"),
         config=_executor_config(),
         clock=clock if clock is not None else FixedClock(NOW),
     )
@@ -153,7 +142,6 @@ class TestExecuteHappyPath:
     def test_executes_and_reconciles(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker()
         result = _service(broker).execute(PROPOSAL_ID, KEY)
         assert result.status is ProposalStatus.EXECUTED
@@ -166,7 +154,6 @@ class TestExecuteHappyPath:
     def test_sells_are_submitted_before_buys(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker(
             positions=[
                 BrokerPosition(symbol="SPY", quantity=700.0, price=100.0),
@@ -182,7 +169,6 @@ class TestExecuteHappyPath:
     def test_state_is_reconciled_after_execution(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         _service(_broker()).execute(PROPOSAL_ID, KEY)
         state_item = client.get_item(
             TableName=TABLE_NAME,
@@ -199,7 +185,6 @@ class TestExecuteHappyPath:
     def test_repeated_key_replays_the_recorded_result(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker()
         service = _service(broker)
         first = service.execute(PROPOSAL_ID, KEY)
@@ -212,14 +197,12 @@ class TestExecuteHappyPath:
 class TestRejections:
     def test_unknown_proposal_is_not_found(self, env) -> None:
         client, s3 = env
-        _put_prices(s3)
         with pytest.raises(NotFoundError):
             _service(_broker()).execute("missing-proposal", KEY)
 
     def test_expired_proposal_is_rejected_without_orders(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker()
         expired = datetime.now(UTC) + timedelta(days=2)
         with pytest.raises(ProposalExpired):
@@ -229,7 +212,6 @@ class TestRejections:
     def test_non_pending_proposal_is_rejected_without_orders(self, env) -> None:
         client, s3 = env
         _put_proposal(client, status="NO_REBALANCE")
-        _put_prices(s3)
         broker = _broker()
         with pytest.raises(ProposalNotPending):
             _service(broker).execute(PROPOSAL_ID, KEY)
@@ -238,7 +220,6 @@ class TestRejections:
     def test_market_closed_is_rejected_without_orders(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker(market_open=False)
         with pytest.raises(MarketClosed):
             _service(broker).execute(PROPOSAL_ID, KEY)
@@ -247,24 +228,38 @@ class TestRejections:
     def test_price_drift_is_rejected_without_orders(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
-        broker = _broker(prices={"SPY": 200.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0})
+        broker = _broker(
+            prices={"SPY": 200.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+            adjusted_closes={"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+        )
         with pytest.raises(PriceDriftExceeded):
             _service(broker).execute(PROPOSAL_ID, KEY)
         assert broker.submitted == []
 
-    def test_missing_prices_fail_closed(self, env) -> None:
+    def test_missing_reference_prices_fail_closed(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        broker = _broker()
-        with pytest.raises(NotFoundError, match="prices"):
+        broker = _broker(adjusted_closes={})
+        with pytest.raises(BrokerError, match="adjusted close"):
             _service(broker).execute(PROPOSAL_ID, KEY)
         assert broker.submitted == []
+
+    def test_a_rebased_adjusted_close_does_not_reject_the_proposal(self, env) -> None:
+        """N-15: a split rebases the adjusted history, not the drift check."""
+        client, s3 = env
+        _put_proposal(client)
+        # SPY did a 2:1 split since the proposal: the live price is 50 and
+        # the adjusted history is rebased to the same basis.
+        broker = _broker(
+            prices={"SPY": 50.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+            adjusted_closes={"SPY": 50.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+        )
+        result = _service(broker).execute(PROPOSAL_ID, KEY)
+        assert result.status is ProposalStatus.EXECUTED
 
     def test_in_flight_claim_is_rejected_without_orders(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         client.put_item(
             TableName=TABLE_NAME,
             Item={
@@ -285,7 +280,6 @@ class TestPartialFills:
     def test_partial_fill_sets_partial_status_and_reconciles(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker(partial_fill_ratio={"TLT": 0.5})
         clock = SteppingClock(NOW, step_seconds=10)
         result = _service(broker, clock).execute(PROPOSAL_ID, KEY)
@@ -308,7 +302,6 @@ class TestPartialFills:
     def test_rejected_all_orders_fail_the_execution(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker(reject_symbols=set(SYMBOLS))
         clock = SteppingClock(NOW, step_seconds=10)
         result = _service(broker, clock).execute(PROPOSAL_ID, KEY)
@@ -339,7 +332,6 @@ class TestMidFlightFailure:
     def test_failure_after_a_filled_sell_still_reconciles_state(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _broker(
             positions=[
                 BrokerPosition(symbol="SPY", quantity=700.0, price=100.0),
@@ -369,7 +361,6 @@ class TestMidFlightFailure:
     def test_broker_failure_during_reconciliation_does_not_mask_the_error(self, env) -> None:
         client, s3 = env
         _put_proposal(client)
-        _put_prices(s3)
         broker = _FailingAfterFirstBroker(_broker())
         service = _service(broker)
         broker.calls = 1  # fail immediately on the first order submit

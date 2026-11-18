@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -246,3 +247,46 @@ def test_other_lookup_errors_still_raise_broker_error() -> None:
 
     with pytest.raises(BrokerError, match="lookup"):
         _broker(trading=_BrokenClient()).get_order_status("oid")
+
+
+def test_get_adjusted_close_returns_the_requested_day_close() -> None:
+    from alpaca.data.enums import Adjustment
+
+    class _BarsDataClient:
+        def __init__(self) -> None:
+            self.requests: list[SimpleNamespace] = []
+
+        def get_stock_bars(self, request: SimpleNamespace) -> dict[str, SimpleNamespace]:
+            self.requests.append(request)
+            return {
+                "SPY": SimpleNamespace(
+                    bars=[
+                        SimpleNamespace(date=datetime(2026, 11, 12, tzinfo=UTC), close=100.0),
+                        SimpleNamespace(date=datetime(2026, 11, 13, tzinfo=UTC), close=50.5),
+                    ]
+                )
+            }
+
+    data = _BarsDataClient()
+    price = _broker(data=data).get_adjusted_close("SPY", date(2026, 11, 13))
+    assert price == pytest.approx(50.5)
+    assert data.requests[0].adjustment is Adjustment.ALL
+    assert data.requests[0].start.date() == date(2026, 11, 13)
+
+
+def test_get_adjusted_close_fails_closed_without_a_bar() -> None:
+    class _EmptyDataClient:
+        def get_stock_bars(self, request: SimpleNamespace) -> dict[str, SimpleNamespace]:
+            return {"SPY": SimpleNamespace(bars=[])}
+
+    with pytest.raises(BrokerError, match="no adjusted close"):
+        _broker(data=_EmptyDataClient()).get_adjusted_close("SPY", date(2026, 11, 13))
+
+
+def test_get_adjusted_close_maps_api_errors() -> None:
+    class _BrokenDataClient:
+        def get_stock_bars(self, request: SimpleNamespace) -> dict[str, SimpleNamespace]:
+            raise APIError("bars down", 503)
+
+    with pytest.raises(BrokerError, match="adjusted close request failed"):
+        _broker(data=_BrokenDataClient()).get_adjusted_close("SPY", date(2026, 11, 13))

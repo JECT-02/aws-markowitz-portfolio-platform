@@ -10,7 +10,7 @@ from typing import Any
 from common.adapters.alpaca import AlpacaPaperBroker
 from common.adapters.secrets import load_alpaca_credentials
 from common.clock import SystemClock
-from common.config import ExecutorConfig, RuntimeSettings, StorageSettings
+from common.config import ExecutorConfig, RuntimeSettings
 from common.env import load_env_file
 from common.errors import (
     AuthorizationError,
@@ -27,11 +27,9 @@ from common.errors import (
     StorageError,
 )
 from common.logging import configure_logging, get_logger
-from common.storage import S3Storage
 from executor.adapters.notifications import SnsResultNotifier
 from executor.core.execution import RebalanceService
 from executor.core.models import ExecutionResult
-from executor.core.prices import GoldPricesRepository
 from executor.core.state import DynamoExecutionState
 
 logger = get_logger(__name__)
@@ -140,18 +138,14 @@ def build_dependencies() -> ExecutorDependencies:
     """Build the execution dependencies from the environment."""
     runtime = RuntimeSettings.from_environment()
     config = ExecutorConfig.from_environment()
-    storage_settings = StorageSettings.from_environment()
     table_name = os.environ.get("STATE_TABLE")
     if table_name is None or not table_name.strip():
         raise ConfigurationError("missing environment variable: STATE_TABLE")
     state = DynamoExecutionState(table_name.strip(), region_name=runtime.aws_region)
-    storage = S3Storage(region_name=runtime.aws_region)
-    prices = GoldPricesRepository(storage, storage_settings.gold_bucket)
     broker = _build_broker(runtime)
     service = RebalanceService(
         state=state,
         broker=broker,
-        prices=prices,
         config=config,
         clock=SystemClock(),
     )
