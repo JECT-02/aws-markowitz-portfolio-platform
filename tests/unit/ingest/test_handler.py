@@ -91,7 +91,7 @@ def test_open_market_runs_ingestion_with_lookback(
     assert outcome["accepted"] == {"SPY": "key"}
     metadata, symbols, start, end = service.calls[0]
     assert symbols == ["SPY"]
-    assert start == date(2024, 1, 2) - timedelta(days=420)
+    assert start == date(2024, 1, 2) - timedelta(days=1000)
     assert end == date(2024, 1, 1)
     assert metadata.run_date == date(2024, 1, 2)
 

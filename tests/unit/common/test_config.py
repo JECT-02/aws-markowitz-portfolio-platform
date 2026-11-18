@@ -87,7 +87,7 @@ def test_repository_strategy_yaml_round_trips_to_the_environment(
     assert config.max_forward_fill_days == 2
     assert config.window_days == 252
     assert config.rebalance_l1_threshold == pytest.approx(0.10)
-    assert config.ingest_lookback_days == 420
+    assert config.ingest_lookback_days == 1000
     assert config.validation_gammas == [1.0, 2.0]
     assert config.validation_lambdas == [0.0, 0.001]
     assert config.validation_alphas == [0.0, 0.5]
