@@ -204,6 +204,23 @@ run "lambda_roles_can_write_their_own_dlq" {
   }
 }
 
+run "state_machine_timeout_covers_the_stage_budget" {
+  command = plan
+
+  # N-13: the state machine budget must cover the sum of the stage lambda
+  # timeouts (plus the 60s scheduling buffer), never less; the ASL
+  # definition embeds local.stage_timeout_total as its TimeoutSeconds.
+  assert {
+    condition = local.stage_timeout_total == (
+      aws_lambda_function.pipeline["ingest"].timeout +
+      aws_lambda_function.pipeline["clean"].timeout +
+      aws_lambda_function.pipeline["optimizer"].timeout +
+      60
+    )
+    error_message = "The state machine timeout must cover the whole stage budget."
+  }
+}
+
 run "scheduler_uses_ny_timezone_cron" {
   command = plan
 
