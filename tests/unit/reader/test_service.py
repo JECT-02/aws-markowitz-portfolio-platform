@@ -128,11 +128,15 @@ def test_malformed_document_raises_data_validation() -> None:
         service.get_proposal()
 
 
-def test_metrics_come_from_the_proposal() -> None:
+def test_metrics_document_carries_proposal_attribution() -> None:
+    """N-07: BI consumers need the run date and proposal id."""
     service, _, _ = _service()
-    metrics = service.get_metrics()
-    assert set(metrics) == {"optimizer"}
-    assert metrics["optimizer"].herfindahl_index == 0.52
+    document = service.get_metrics()
+    assert set(document) == {"proposal_id", "run_date", "metrics"}
+    assert document["proposal_id"] == "2025-02-03-run-1"
+    assert document["run_date"] == "2025-02-03"
+    assert set(document["metrics"]) == {"optimizer"}
+    assert document["metrics"]["optimizer"].herfindahl_index == 0.52
 
 
 def test_monitor_prefers_reconciled_state() -> None:

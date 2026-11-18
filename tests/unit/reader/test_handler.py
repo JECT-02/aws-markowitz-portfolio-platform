@@ -131,10 +131,14 @@ def test_missing_partition_returns_404(environment: None) -> None:
     assert "proposal" in _body(response)["message"]
 
 
-def test_get_metrics_returns_metrics_map(environment: None) -> None:
+def test_get_metrics_returns_the_metrics_document(environment: None) -> None:
     response = run_reader(_event("GET /metrics"), _deps())
     assert response["statusCode"] == 200
-    assert _body(response) == {"metrics": {}}
+    assert _body(response) == {
+        "proposal_id": "2025-02-03-run-1",
+        "run_date": "2025-02-03",
+        "metrics": {},
+    }
 
 
 def test_get_monitor_falls_back_to_proposal_weights(environment: None) -> None:
