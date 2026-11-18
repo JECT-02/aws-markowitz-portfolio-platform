@@ -2,10 +2,15 @@
 
 > **Versión 2 (noviembre 2026).** Rediseño completo a partir de la versión 1. Incluye correcciones técnicas, decisiones de herramientas justificadas con datos verificados y un plan de implementación.
 
-> **Estado de la implementación (noviembre 2026).** Este documento conserva el
-> diseño de referencia; el sistema construido se desvía de él de forma
-> consciente y registrada (ADR: `docs/adr/0001-recorte-alcance-demo.md`,
-> auditoría en `mistakes.md`). Lo que **existe hoy**:
+> **Estado de la implementación (noviembre 2026, ciclo QA cerrado).** Este
+> documento conserva el diseño de referencia; el sistema construido se desvía
+> de él de forma consciente y registrada (ADR:
+> `docs/adr/0001-recorte-alcance-demo.md`, auditoría externa en
+> `mistakes.md` con sus 55+ hallazgos corregidos en las ramas
+> `fix/qa-unblock`, `fix/ci-trivy-ignores`, `fix/qa-executor`,
+> `fix/qa-backtest`, `fix/qa-pipeline`, `fix/qa-executor-adapters`,
+> `fix/qa-math`, `fix/qa-data`, `fix/qa-demo` y `fix/qa-leves`). Lo que
+> **existe hoy**:
 >
 > - **IaC = Terraform** (no CDK): módulos `data`, `pipeline`, `backtest`,
 >   `api` y `web` en `infra/modules/`, entorno único `dev` en
@@ -35,6 +40,17 @@
 >   resultado del pipeline (ya implementada).
 > - Los benchmarks comparados son **1/N, mínima varianza y SPY** (risk parity
 >   del diseño original no se implementó).
+> - **Calidad ejecutable:** `make check` encadena formato, lint, tipos,
+>   seguridad, las tres pirámides de pruebas con mocks, cobertura (≥ 80 %) y
+>   los chequeos de Terraform; las imágenes instalan el universo congelado
+>   de `uv.lock` (`make freeze`), exigen digest `sha256:<64 hex>` por
+>   variable y se construyen con `--platform linux/amd64`. La corrida local
+>   lee `config/strategy.yaml` directamente (`StrategyConfig.from_yaml`).
+> - **Pasos de despliegue que quedan al humano** (documentados en README):
+>   bootstrap + `backend.hcl`, dos fases de `terraform apply`
+>   (`spa_allowed_origin`), build/push de imágenes a ECR con digest, usuario
+>   Cognito asignado al grupo `executors` y digest de la imagen base de
+>   Lambda.
 
 **Título sugerido (más honesto y defendible):**
 *Near-Real-Time Monitoring and Daily Markowitz Rebalancing via Convex Quadratic Programming: An AWS Serverless IaC Architecture*
