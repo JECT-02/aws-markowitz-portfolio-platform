@@ -1,11 +1,27 @@
 mock_provider "aws" {}
 
 variables {
-  project                 = "portfolio-markowitz-aws"
-  env                     = "dev"
-  image_tag               = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  code_version            = "abc1234"
-  strategy                = {}
+  project      = "portfolio-markowitz-aws"
+  env          = "dev"
+  image_tag    = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  code_version = "abc1234"
+  # Same values as config/strategy.yaml; the variable validation rejects
+  # incomplete or empty maps (see strategy_must_be_complete below).
+  strategy = {
+    risk_aversion           = "2.0"
+    transaction_cost_lambda = "0.001"
+    return_shrinkage_alpha  = "0.5"
+    risk_free_rate_annual   = "0.04"
+    max_forward_fill_days   = "2"
+    window_days             = "252"
+    ingest_lookback_days    = "420"
+    rebalance_l1_threshold  = "0.10"
+    validation_gammas       = "1,2"
+    validation_lambdas      = "0,0.001"
+    validation_alphas       = "0,0.5"
+    validation_windows      = "126,252"
+    validation_folds        = "3"
+  }
   bronze_bucket_name      = "portfolio-markowitz-aws-dev-lakehouse-bronze"
   bronze_bucket_arn       = "arn:aws:s3:::portfolio-markowitz-aws-dev-lakehouse-bronze"
   quarantine_bucket_name  = "portfolio-markowitz-aws-dev-lakehouse-quarantine"
@@ -92,7 +108,9 @@ run "state_machine_is_standard_with_error_logging" {
   # The ASL content (Retry/Catch/Choice) is static HCL built with jsonencode;
   # its lambda ARNs are unknown at plan time, so the structural assertions
   # below check the resource attributes that are known, and the ASL shape is
-  # reviewed statically (trivy/tflint do not parse ASL).
+  # reviewed statically (trivy/tflint do not parse ASL): every lambda task
+  # lifts its response with ResultSelector, every SNS publish sends
+  # States.JsonToString($) and carries an explicit Catch.
   assert {
     condition     = aws_sfn_state_machine.daily_pipeline.type == "STANDARD"
     error_message = "The pipeline runs on a Standard state machine."
@@ -102,6 +120,65 @@ run "state_machine_is_standard_with_error_logging" {
     condition     = aws_sfn_state_machine.daily_pipeline.logging_configuration[0].level == "ERROR"
     error_message = "Step Functions logs errors only."
   }
+}
+
+run "state_machine_reads_the_published_stage_contract" {
+  command = plan
+
+  assert {
+    condition = output.stage_output_contract == {
+      ingest = ["status", "run_id", "run_date", "source", "accepted"]
+      clean  = ["status", "run_id", "run_date", "source"]
+      optimize = [
+        "status",
+        "proposal_id",
+        "run_id",
+        "run_date",
+        "weights",
+        "drift_l1",
+        "rebalance_required",
+      ]
+    }
+    error_message = "The stage output contract must stay aligned with the ResultSelector paths in the ASL and the handler tests."
+  }
+}
+
+run "strategy_must_be_complete" {
+  command = plan
+
+  variables {
+    strategy = {
+      risk_aversion    = "2.0"
+      window_days      = "252"
+      validation_folds = "3"
+    }
+  }
+
+  expect_failures = [var.strategy]
+}
+
+run "strategy_must_not_have_empty_values" {
+  command = plan
+
+  variables {
+    strategy = {
+      risk_aversion           = "2.0"
+      transaction_cost_lambda = "0.001"
+      return_shrinkage_alpha  = "0.5"
+      risk_free_rate_annual   = "0.04"
+      max_forward_fill_days   = "2"
+      window_days             = "252"
+      ingest_lookback_days    = "420"
+      rebalance_l1_threshold  = "0.10"
+      validation_gammas       = "1,2"
+      validation_lambdas      = "0,0.001"
+      validation_alphas       = "0,0.5"
+      validation_windows      = "126,252"
+      validation_folds        = ""
+    }
+  }
+
+  expect_failures = [var.strategy]
 }
 
 run "scheduler_uses_ny_timezone_cron" {

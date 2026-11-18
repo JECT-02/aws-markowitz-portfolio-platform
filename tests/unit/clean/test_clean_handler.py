@@ -65,6 +65,18 @@ def _deps(service: _RecordingService, strategy: StrategyConfig) -> CleanDependen
 def test_run_clean_returns_summary(make_strategy_config: Callable[..., StrategyConfig]) -> None:
     service = _RecordingService(_result())
     outcome = run_clean({}, _deps(service, make_strategy_config()))
+    # Contract with the pipeline state machine ResultSelector
+    # (infra/modules/pipeline/state_machine.tf, output.stage_output_contract).
+    assert set(outcome) == {
+        "status",
+        "run_id",
+        "run_date",
+        "source",
+        "used",
+        "missing",
+        "excluded",
+        "partitions",
+    }
     assert outcome["status"] == "COMPLETED"
     assert outcome["source"] == "alpaca"
     assert outcome["partitions"] == ["year=2024/month=01/returns.parquet"]

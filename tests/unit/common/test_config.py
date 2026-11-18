@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from common.config import (
     ExecutorConfig,
@@ -49,6 +50,48 @@ def test_strategy_config_from_environment() -> None:
     assert config.max_forward_fill_days == 3
     assert config.validation_gammas == [1.0, 2.5, 5.0]
     assert config.validation_windows == [126, 252, 504]
+    assert config.validation_folds == 3
+
+
+def test_repository_strategy_yaml_round_trips_to_the_environment(
+    strategy_env_names: dict[str, str],
+) -> None:
+    """Guard the config file, Terraform rendering and Python parsing together.
+
+    Terraform (infra/envs/dev/main.tf) renders scalars with ``tostring`` and
+    joins lists with commas; this test applies the same translation and feeds
+    it to ``StrategyConfig.from_environment`` so an edit to
+    config/strategy.yaml that the lambdas would reject fails here first.
+    """
+    path = Path(__file__).resolve().parents[3] / "config" / "strategy.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert set(document) == set(strategy_env_names)
+
+    def _scalar(value: object) -> str:
+        assert value is not None and not isinstance(value, (dict, list))
+        return str(value)
+
+    environ = {
+        env_name: (
+            ",".join(_scalar(item) for item in document[field])
+            if isinstance(document[field], list)
+            else _scalar(document[field])
+        )
+        for field, env_name in strategy_env_names.items()
+    }
+    config = StrategyConfig.from_environment(environ)
+    assert config.risk_aversion == pytest.approx(2.0)
+    assert config.transaction_cost_lambda == pytest.approx(0.001)
+    assert config.return_shrinkage_alpha == pytest.approx(0.5)
+    assert config.risk_free_rate_annual == pytest.approx(0.04)
+    assert config.max_forward_fill_days == 2
+    assert config.window_days == 252
+    assert config.rebalance_l1_threshold == pytest.approx(0.10)
+    assert config.ingest_lookback_days == 420
+    assert config.validation_gammas == [1.0, 2.0]
+    assert config.validation_lambdas == [0.0, 0.001]
+    assert config.validation_alphas == [0.0, 0.5]
+    assert config.validation_windows == [126, 252]
     assert config.validation_folds == 3
 
 

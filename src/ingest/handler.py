@@ -17,6 +17,7 @@ from common.config import (
     load_universe_config,
 )
 from common.env import load_env_file
+from common.errors import ConfigurationError
 from common.events import resolve_run_date, resolve_run_id
 from common.logging import configure_logging, get_logger
 from common.models import DataSource, RunMetadata
@@ -45,7 +46,18 @@ def run_ingestion(event: Mapping[str, object], deps: IngestDependencies) -> dict
     run_date = resolve_run_date(event, deps.clock)
     if not deps.calendar.is_trading_day(run_date):
         logger.info("market closed", extra={"run_date": run_date.isoformat()})
-        return {"status": "SKIPPED", "run_date": run_date.isoformat(), "reason": "market_closed"}
+        # Contract: the pipeline state machine ResultSelector reads status,
+        # run_id, run_date, source and accepted from every ingest outcome
+        # (infra/modules/pipeline/state_machine.tf), so the skipped path must
+        # publish the same keys as a completed run.
+        return {
+            "status": "SKIPPED",
+            "run_id": resolve_run_id(event),
+            "run_date": run_date.isoformat(),
+            "source": _resolve_source(event).value,
+            "accepted": {},
+            "reason": "market_closed",
+        }
     metadata = RunMetadata(
         run_id=resolve_run_id(event),
         run_date=run_date,
@@ -112,3 +124,13 @@ def _build_dependencies() -> IngestDependencies:
         strategy=strategy,
         code_version=runtime.code_version,
     )
+
+
+def _resolve_source(event: Mapping[str, object]) -> DataSource:
+    value = event.get("source", DataSource.ALPACA.value)
+    if not isinstance(value, str):
+        raise ConfigurationError("source must be a string")
+    try:
+        return DataSource(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"unsupported source: {value}") from exc

@@ -168,7 +168,9 @@ def test_writer_publishes_the_partition_and_the_latest_pointer(writer: S3Backtes
     assert _read(BACKTEST_LATEST_KEY) == expected
 
 
-def test_writer_reruns_are_idempotent(writer: S3BacktestWriter) -> None:
+def test_writer_rerun_keeps_the_partition_and_refreshes_the_pointer(
+    writer: S3BacktestWriter,
+) -> None:
     writer.write(_report())
     rerun = BacktestReport.from_validation_result(
         _result(),
@@ -182,4 +184,6 @@ def test_writer_reruns_are_idempotent(writer: S3BacktestWriter) -> None:
         datetime(2026, 2, 7, 14, 0, tzinfo=UTC),
     )
     writer.write(rerun)
-    assert _read(BACKTEST_LATEST_KEY) == _report().model_dump(mode="json")
+    partition_key = BACKTEST_KEY_TEMPLATE.format(run_date="2026-02-07")
+    assert _read(partition_key) == _report().model_dump(mode="json")
+    assert _read(BACKTEST_LATEST_KEY) == rerun.model_dump(mode="json")

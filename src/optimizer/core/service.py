@@ -164,11 +164,12 @@ class OptimizerService:
         return proposal
 
     def _write(self, proposal: Proposal, reference_prices: Mapping[str, float]) -> None:
-        # First artifact per run date wins, matching the conditional DynamoDB write.
+        # Run-partition artifacts are first-write-wins so a rerun of the same
+        # run date never mixes proposals; only the pointer must be refreshed.
         payload = proposal.model_dump(mode="json")
         key = f"run_date={proposal.run_date.isoformat()}/proposal.json"
         self._storage.write_json_if_absent(self._gold_bucket, key, payload)
-        self._storage.write_json_if_absent(self._gold_bucket, "latest.json", payload)
+        self._storage.write_json(self._gold_bucket, "latest.json", payload)
         prices_key = f"run_date={proposal.run_date.isoformat()}/prices.json"
         self._storage.write_json_if_absent(
             self._gold_bucket,

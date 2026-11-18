@@ -83,6 +83,9 @@ def test_open_market_runs_ingestion_with_lookback(
     service = _RecordingService(_result())
     deps = _deps(service, _FakeCalendar(True), clock, make_strategy_config())
     outcome = run_ingestion({}, deps)
+    # Contract with the pipeline state machine ResultSelector
+    # (infra/modules/pipeline/state_machine.tf, output.stage_output_contract).
+    assert set(outcome) == {"status", "run_id", "run_date", "source", "accepted", "quarantined"}
     assert outcome["status"] == "COMPLETED"
     assert outcome["run_date"] == "2024-01-02"
     assert outcome["accepted"] == {"SPY": "key"}
@@ -100,9 +103,24 @@ def test_closed_market_skips_ingestion(
     service = _RecordingService(_result())
     deps = _deps(service, _FakeCalendar(False), clock, make_strategy_config())
     outcome = run_ingestion({}, deps)
+    # Contract with the pipeline state machine ResultSelector: the skipped
+    # path must publish the same keys a completed run publishes.
+    assert set(outcome) == {"status", "run_id", "run_date", "source", "accepted", "reason"}
     assert outcome["status"] == "SKIPPED"
     assert outcome["reason"] == "market_closed"
     assert service.calls == []
+
+
+def test_skipped_contract_matches_the_state_machine_keys(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
+    clock = _FixedClock(datetime(2024, 1, 6, 22, 0, tzinfo=UTC))
+    deps = _deps(_RecordingService(_result()), _FakeCalendar(False), clock, make_strategy_config())
+    outcome = run_ingestion({"source": "yfinance"}, deps)
+    completed = {"status", "run_id", "run_date", "source", "accepted"}
+    assert completed.issubset(outcome)
+    assert outcome["source"] == "yfinance"
+    assert outcome["accepted"] == {}
 
 
 def test_event_overrides_run_date_and_run_id(

@@ -15,6 +15,16 @@ locals {
             source = "alpaca"
           }
         }
+        # The optimized lambda:integration nests the response in Payload;
+        # ResultSelector lifts the stage contract to the root state
+        # (output.stage_output_contract pins the required keys).
+        ResultSelector = {
+          "status.$"   = "$.Payload.status"
+          "run_id.$"   = "$.Payload.run_id"
+          "run_date.$" = "$.Payload.run_date"
+          "source.$"   = "$.Payload.source"
+          "accepted.$" = "$.Payload.accepted"
+        }
         Retry = [
           {
             ErrorEquals     = local.transient_lambda_errors
@@ -58,6 +68,12 @@ locals {
             "accepted.$" = "$.accepted"
           }
         }
+        ResultSelector = {
+          "status.$"   = "$.Payload.status"
+          "run_id.$"   = "$.Payload.run_id"
+          "run_date.$" = "$.Payload.run_date"
+          "source.$"   = "$.Payload.source"
+        }
         Retry = [
           {
             ErrorEquals     = local.transient_lambda_errors
@@ -83,7 +99,17 @@ locals {
           Payload = {
             "run_id.$"   = "$.run_id"
             "run_date.$" = "$.run_date"
+            "source.$"   = "$.source"
           }
+        }
+        ResultSelector = {
+          "status.$"             = "$.Payload.status"
+          "proposal_id.$"        = "$.Payload.proposal_id"
+          "run_id.$"             = "$.Payload.run_id"
+          "run_date.$"           = "$.Payload.run_date"
+          "weights.$"            = "$.Payload.weights"
+          "drift_l1.$"           = "$.Payload.drift_l1"
+          "rebalance_required.$" = "$.Payload.rebalance_required"
         }
         Retry = [
           {
@@ -106,10 +132,18 @@ locals {
         Type     = "Task"
         Resource = "arn:${data.aws_partition.current.partition}:states:::sns:publish"
         Parameters = {
-          TopicArn    = var.notifications_topic_arn
-          "Message.$" = "$"
+          TopicArn = var.notifications_topic_arn
+          # SNS accepts a string payload only; the state input is an object.
+          "Message.$" = "States.JsonToString($)"
           Subject     = "Portfolio proposal ready"
         }
+        Catch = [
+          {
+            ErrorEquals = ["States.ALL"]
+            Next        = "PipelineFailed"
+            ResultPath  = "$.error"
+          }
+        ]
         Next = "PipelineSucceeded"
       }
       PipelineSucceeded = {
@@ -119,10 +153,18 @@ locals {
         Type     = "Task"
         Resource = "arn:${data.aws_partition.current.partition}:states:::sns:publish"
         Parameters = {
-          TopicArn    = var.notifications_topic_arn
-          "Message.$" = "$"
+          TopicArn = var.notifications_topic_arn
+          # SNS accepts a string payload only; the state input is an object.
+          "Message.$" = "States.JsonToString($)"
           Subject     = "Portfolio pipeline failure"
         }
+        Catch = [
+          {
+            ErrorEquals = ["States.ALL"]
+            Next        = "PipelineFailed"
+            ResultPath  = "$.error"
+          }
+        ]
         Next = "PipelineFailed"
       }
       PipelineFailed = {
@@ -332,4 +374,21 @@ output "function_names" {
 output "ecr_repository_uris" {
   description = "ECR repository URIs keyed by stage."
   value       = { for name, repo in aws_ecr_repository.functions : name => repo.repository_url }
+}
+
+output "stage_output_contract" {
+  description = "Keys each stage lambda must return on every code path; the state machine ResultSelector reads exactly these from Payload. Mirrored by the handler tests in tests/unit (see the ResultSelector comment in this file)."
+  value = {
+    ingest = ["status", "run_id", "run_date", "source", "accepted"]
+    clean  = ["status", "run_id", "run_date", "source"]
+    optimize = [
+      "status",
+      "proposal_id",
+      "run_id",
+      "run_date",
+      "weights",
+      "drift_l1",
+      "rebalance_required",
+    ]
+  }
 }

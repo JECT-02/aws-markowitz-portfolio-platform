@@ -34,3 +34,27 @@ def make_strategy_config() -> Callable[..., StrategyConfig]:
         return StrategyConfig.model_validate(values)
 
     return factory
+
+
+@pytest.fixture
+def strategy_env_names() -> dict[str, str]:
+    """YAML field -> environment variable name.
+
+    Mirrors `strategy_env_names` in infra/modules/pipeline/main.tf and
+    infra/modules/backtest/main.tf; test_config.py keeps all three in sync.
+    """
+    return {
+        "risk_aversion": "RISK_AVERSION",
+        "transaction_cost_lambda": "TRANSACTION_COST_LAMBDA",
+        "return_shrinkage_alpha": "RETURN_SHRINKAGE_ALPHA",
+        "risk_free_rate_annual": "RISK_FREE_RATE_ANNUAL",
+        "max_forward_fill_days": "MAX_FORWARD_FILL_DAYS",
+        "window_days": "WINDOW_DAYS",
+        "ingest_lookback_days": "INGEST_LOOKBACK_DAYS",
+        "rebalance_l1_threshold": "REBALANCE_L1_THRESHOLD",
+        "validation_gammas": "VALIDATION_GAMMAS",
+        "validation_lambdas": "VALIDATION_LAMBDAS",
+        "validation_alphas": "VALIDATION_ALPHAS",
+        "validation_windows": "VALIDATION_WINDOWS",
+        "validation_folds": "VALIDATION_FOLDS",
+    }
