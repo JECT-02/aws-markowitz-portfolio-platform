@@ -107,6 +107,25 @@ def test_validation_requires_enough_history() -> None:
         _validation().run(_matrix(rows=60))
 
 
+def test_validation_rejects_a_grid_that_exceeds_the_lambda_budget() -> None:
+    """G-11: the grid cannot outgrow the single 900s Lambda."""
+    oversized = _strategy().model_copy(
+        update={
+            "validation_gammas": [1.0, 2.0, 4.0],
+            "validation_lambdas": [0.0, 0.001, 0.01],
+            "validation_alphas": [0.0, 0.25, 0.5],
+            "validation_windows": [20, 30, 60],
+            "validation_folds": 5,
+        }
+    )
+    validation = TemporalValidation(
+        UniverseConfig(tickers=SYMBOLS, max_weight=0.20),
+        oversized,
+    )
+    with pytest.raises(DataValidationError, match="budget"):
+        validation.run(_matrix())
+
+
 def test_validation_rejects_empty_windows() -> None:
     strategy = _strategy().model_copy(update={"validation_windows": []})
     validation = TemporalValidation(

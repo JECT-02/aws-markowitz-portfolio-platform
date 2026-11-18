@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import date
 from itertools import product
@@ -9,6 +10,7 @@ import numpy as np
 from backtest.core.engine import BacktestEngine
 from common.config import StrategyConfig, UniverseConfig
 from common.errors import DataValidationError
+from common.logging import get_logger
 from optimizer.core.metrics import (
     annualized_return,
     annualized_volatility,
@@ -17,9 +19,16 @@ from optimizer.core.metrics import (
 )
 from optimizer.core.repository import ReturnsMatrix
 
+logger = get_logger(__name__)
+
 TRAIN_FRACTION = 0.60
 VALIDATION_FRACTION = 0.80
 MIN_PERIOD_OBSERVATIONS = 2
+# The weekly backtest runs as a single Lambda with a 900 s cap and no
+# checkpoint: a grid that needs more than this many candidate-fold
+# evaluations cannot complete reliably and must be reduced in
+# config/strategy.yaml (mistakes.md G-11).
+MAX_GRID_EVALUATIONS = 240
 
 
 @dataclass(frozen=True)
@@ -64,12 +73,26 @@ class TemporalValidation:
 
     def run(self, matrix: ReturnsMatrix) -> ValidationResult:
         """Evaluate the configured grid with nested temporal folds."""
+        started = time.perf_counter()
         train_end, validation_end = _split_indices(
             matrix,
             self._strategy.validation_windows,
             self._strategy.validation_folds,
         )
         folds = _fold_bounds(train_end, validation_end, self._strategy.validation_folds)
+        candidate_count = (
+            len(self._strategy.validation_gammas)
+            * len(self._strategy.validation_lambdas)
+            * len(self._strategy.validation_alphas)
+            * len(self._strategy.validation_windows)
+        )
+        if candidate_count * self._strategy.validation_folds > MAX_GRID_EVALUATIONS:
+            raise DataValidationError(
+                f"validation grid of {candidate_count} candidates x "
+                f"{self._strategy.validation_folds} folds exceeds the "
+                f"{MAX_GRID_EVALUATIONS}-evaluation budget of the 900s backtest "
+                "lambda; reduce the grid in config/strategy.yaml"
+            )
         candidates: list[ParameterCandidate] = []
         for gamma, cost_lambda, alpha, window in product(
             self._strategy.validation_gammas,
@@ -151,6 +174,15 @@ class TemporalValidation:
                 out_of_sample[mode] = out_metrics
         if "optimizer" not in out_of_sample:
             raise DataValidationError("test period has no optimizer observations")
+        logger.info(
+            "temporal validation completed",
+            extra={
+                "candidate_count": len(candidates),
+                "grid_size": candidate_count,
+                "folds": self._strategy.validation_folds,
+                "elapsed_seconds": round(time.perf_counter() - started, 2),
+            },
+        )
         return ValidationResult(
             selected=selected,
             candidates=candidates,
