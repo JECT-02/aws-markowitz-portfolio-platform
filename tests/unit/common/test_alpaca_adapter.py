@@ -189,11 +189,6 @@ def test_get_order_status_maps_canceled_to_rejected() -> None:
     assert snapshot.status is OrderStatus.REJECTED
 
 
-def test_unknown_order_id_raises_broker_error() -> None:
-    with pytest.raises(BrokerError):
-        _broker().get_order_status("missing-id")
-
-
 def test_snapshot_rejects_an_unmapped_status() -> None:
     order = SimpleNamespace(status="not-a-status", filled_qty="0")
     with pytest.raises(BrokerError):
@@ -202,3 +197,52 @@ def test_snapshot_rejects_an_unmapped_status() -> None:
 
 def test_default_data_feed_is_iex() -> None:
     assert _broker()._feed is DataFeed.IEX
+
+
+def test_get_positions_rejects_a_null_quantity_or_price() -> None:
+    trading = _FakeTradingClient()
+    trading.positions.append(
+        SimpleNamespace(symbol="spy", qty=None, current_price=500.0),
+    )
+    broker = _broker(trading=trading)
+    with pytest.raises(BrokerError, match="null"):
+        broker.get_positions()
+
+
+def test_replaced_orders_map_to_open_and_keep_polling() -> None:
+    """N-26: REPLACED is not a rejection; the order may still be alive."""
+    trading = _FakeTradingClient()
+    trading.orders["oid"] = SimpleNamespace(
+        status=AlpacaOrderStatus.REPLACED,
+        filled_qty="0",
+    )
+    broker = _broker(trading=trading)
+    snapshot = broker.get_order_status("oid")
+    assert snapshot.status is OrderStatus.UNKNOWN
+    assert snapshot.filled_quantity == pytest.approx(0.0)
+
+
+def test_a_404_lookup_reports_unknown_instead_of_failing() -> None:
+    """N-26: a not-yet-visible order keeps the bounded polling alive."""
+    broker = _broker()  # _FakeTradingClient raises APIError('...', 404)
+    snapshot = broker.get_order_status("missing-id")
+    assert snapshot.status is OrderStatus.UNKNOWN
+    assert snapshot.filled_quantity == pytest.approx(0.0)
+
+
+def test_a_404_code_field_also_reports_unknown() -> None:
+    class _DictErrorClient(_FakeTradingClient):
+        def get_order_by_client_id(self, client_order_id: str) -> SimpleNamespace:
+            raise APIError({"code": 404, "message": "not found"})
+
+    snapshot = _broker(trading=_DictErrorClient()).get_order_status("missing")
+    assert snapshot.status is OrderStatus.UNKNOWN
+
+
+def test_other_lookup_errors_still_raise_broker_error() -> None:
+    class _BrokenClient(_FakeTradingClient):
+        def get_order_by_client_id(self, client_order_id: str) -> SimpleNamespace:
+            raise APIError("lookup down", 503)
+
+    with pytest.raises(BrokerError, match="lookup"):
+        _broker(trading=_BrokenClient()).get_order_status("oid")

@@ -15,12 +15,18 @@ from alpaca.trading.enums import OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
 from common.errors import BrokerError, ConfigurationError
+from common.logging import get_logger
 from common.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
+
+logger = get_logger(__name__)
 
 _PAPER_TRADING_URL = BaseURL.TRADING_PAPER.value
 
 # Alpaca order statuses that end the lifecycle without a fill. They map to
 # REJECTED so the executor treats them as terminal and never waits on them.
+# REPLACED is deliberately NOT here (N-26): a replaced order may still be
+# alive under another id, so it maps to UNKNOWN and polling continues until
+# the reconciliation reads the real positions.
 _REJECTED_STATUSES = frozenset(
     {
         AlpacaOrderStatus.REJECTED,
@@ -29,7 +35,6 @@ _REJECTED_STATUSES = frozenset(
         AlpacaOrderStatus.DONE_FOR_DAY,
         AlpacaOrderStatus.STOPPED,
         AlpacaOrderStatus.SUSPENDED,
-        AlpacaOrderStatus.REPLACED,
         AlpacaOrderStatus.CALCULATED,
     }
 )
@@ -45,6 +50,7 @@ _OPEN_STATUSES = frozenset(
         AlpacaOrderStatus.PENDING_CANCEL,
         AlpacaOrderStatus.PENDING_REPLACE,
         AlpacaOrderStatus.HELD,
+        AlpacaOrderStatus.REPLACED,
     }
 )
 
@@ -128,6 +134,11 @@ class AlpacaPaperBroker:
         positions: list[BrokerPosition] = []
         for raw in raw_positions:
             symbol = str(raw.symbol).strip().upper()
+            # Alpaca can report null qty/current_price for freshly opened or
+            # unquoted positions; float(None) would raise an unclassified
+            # TypeError, so the failure is mapped to BrokerError (N-14).
+            if raw.qty is None or raw.current_price is None:
+                raise BrokerError(f"alpaca reported a null quantity or price for {symbol}")
             quantity = float(raw.qty)
             if not math.isfinite(quantity) or quantity < 0.0:
                 raise BrokerError(f"alpaca reported an unusable quantity for {symbol}: {quantity}")
@@ -191,8 +202,45 @@ class AlpacaPaperBroker:
         try:
             order = self._trading.get_order_by_client_id(client_order_id)
         except APIError as exc:
+            if _is_not_found(exc):
+                # 404: the order is not (yet) visible by client_order_id.
+                # Report UNKNOWN so the bounded polling continues and a
+                # timeout never escalates to a blind resend (AGENTS.md 6.15).
+                logger.warning(
+                    "order not found yet by client_order_id",
+                    extra={"client_order_id": client_order_id},
+                )
+                return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
             raise BrokerError(f"alpaca order lookup failed for {client_order_id}") from exc
         return _snapshot(order, client_order_id)
+
+
+def _is_not_found(exc: APIError) -> bool:
+    """Best-effort 404 detection across alpaca-py error shapes (N-26).
+
+    ``APIError.status_code`` is only populated when the library attaches an
+    ``HTTPError``; older or mocked errors may carry the code as a plain int
+    or as the JSON ``code`` field.
+    """
+    status: int | None = exc.status_code
+    if status is None:
+        http_error = getattr(exc, "_http_error", None)
+        if isinstance(http_error, int):
+            status = http_error
+        else:
+            payload = getattr(exc, "_error", None)
+            if isinstance(payload, dict) and isinstance(payload.get("code"), int):
+                status = int(payload["code"])
+            else:
+                try:
+                    candidate = exc.code
+                    status = int(candidate) if candidate is not None else None
+                except (KeyError, TypeError, ValueError):
+                    # exc.code json-parses the raw error payload; a non-json
+                    # message (TypeError) or an object without "code"
+                    # (KeyError) carries no http status to match.
+                    status = None
+    return status == 404
 
 
 def _snapshot(order: Any, client_order_id: str) -> OrderSnapshot:
