@@ -97,6 +97,7 @@ def test_missing_column_is_rejected() -> None:
 def test_naive_timestamps_are_interpreted_as_eastern_not_utc() -> None:
     """L-08: naive bars are localized to America/New_York, never re-stamped UTC."""
     from datetime import UTC, datetime
+
     from ingest.adapters.yfinance import _timestamp
 
     naive = _timestamp("2024-01-02")
