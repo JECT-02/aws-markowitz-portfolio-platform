@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 from common.models import BrokerPosition, OrderSide, OrderSnapshot
@@ -20,6 +21,8 @@ class BrokerPort(Protocol):
     def get_account_equity(self) -> float: ...
 
     def get_price(self, symbol: str) -> float: ...
+
+    def get_adjusted_close(self, symbol: str, as_of: date) -> float: ...
 
     def submit_order(
         self,

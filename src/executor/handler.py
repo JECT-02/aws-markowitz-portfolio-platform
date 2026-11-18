@@ -10,9 +10,10 @@ from typing import Any
 from common.adapters.alpaca import AlpacaPaperBroker
 from common.adapters.secrets import load_alpaca_credentials
 from common.clock import SystemClock
-from common.config import ExecutorConfig, RuntimeSettings, StorageSettings
+from common.config import ExecutorConfig, RuntimeSettings
 from common.env import load_env_file
 from common.errors import (
+    AuthorizationError,
     BrokerError,
     ConfigurationError,
     DataValidationError,
@@ -26,11 +27,9 @@ from common.errors import (
     StorageError,
 )
 from common.logging import configure_logging, get_logger
-from common.storage import S3Storage
 from executor.adapters.notifications import SnsResultNotifier
 from executor.core.execution import RebalanceService
 from executor.core.models import ExecutionResult
-from executor.core.prices import GoldPricesRepository
 from executor.core.state import DynamoExecutionState
 
 logger = get_logger(__name__)
@@ -49,6 +48,7 @@ _NOTIFICATIONS_TOPIC_ENV = "NOTIFICATIONS_TOPIC_ARN"
 @dataclass(frozen=True)
 class ExecutorDependencies:
     service: RebalanceService
+    config: ExecutorConfig
     notifier: SnsResultNotifier | None = None
 
 
@@ -71,8 +71,14 @@ def run_executor(event: Mapping[str, Any], deps: ExecutorDependencies) -> dict[s
     if route != _REBALANCE_ROUTE:
         return _response(404, {"message": f"no route for {route}"})
     try:
+        _authorize(event, deps.config)
         proposal_id, idempotency_key = _parse_request(event)
         result = deps.service.execute(proposal_id, idempotency_key)
+    except AuthorizationError as exc:
+        # N-16 / AGENTS.md 6.1: authenticated but not authorized callers get
+        # a 403 instead of reaching the execution flow.
+        logger.warning("rebalance caller not authorized", extra={"route": route})
+        return _response(403, {"message": str(exc)})
     except NotFoundError as exc:
         return _response(404, {"message": str(exc)})
     except DataValidationError as exc:
@@ -132,18 +138,14 @@ def build_dependencies() -> ExecutorDependencies:
     """Build the execution dependencies from the environment."""
     runtime = RuntimeSettings.from_environment()
     config = ExecutorConfig.from_environment()
-    storage_settings = StorageSettings.from_environment()
     table_name = os.environ.get("STATE_TABLE")
     if table_name is None or not table_name.strip():
         raise ConfigurationError("missing environment variable: STATE_TABLE")
     state = DynamoExecutionState(table_name.strip(), region_name=runtime.aws_region)
-    storage = S3Storage(region_name=runtime.aws_region)
-    prices = GoldPricesRepository(storage, storage_settings.gold_bucket)
     broker = _build_broker(runtime)
     service = RebalanceService(
         state=state,
         broker=broker,
-        prices=prices,
         config=config,
         clock=SystemClock(),
     )
@@ -156,7 +158,39 @@ def build_dependencies() -> ExecutorDependencies:
         if topic_arn.strip()
         else None
     )
-    return ExecutorDependencies(service=service, notifier=notifier)
+    return ExecutorDependencies(service=service, config=config, notifier=notifier)
+
+
+def _authorize(event: Mapping[str, Any], config: ExecutorConfig) -> None:
+    """Reject callers outside the configured Cognito groups (N-16, 6.1).
+
+    Precondition: API Gateway's JWT authorizer authenticated the token and
+    forwarded the claims under ``requestContext.authorizer.jwt.claims``.
+    Postconditions: silent when the caller belongs to at least one allowed
+    group; ``AuthorizationError`` otherwise (fail closed on missing claims
+    and on an empty allowlist).
+    """
+    request_context = event.get("requestContext")
+    authorizer = request_context.get("authorizer") if isinstance(request_context, Mapping) else None
+    jwt = authorizer.get("jwt") if isinstance(authorizer, Mapping) else None
+    claims = jwt.get("claims") if isinstance(jwt, Mapping) else None
+    if not isinstance(claims, Mapping) or not claims:
+        raise AuthorizationError("the request is not authenticated")
+    if not config.allowed_groups:
+        raise AuthorizationError("no executor group is configured; approvals are disabled")
+    raw_groups = claims.get("cognito:groups", [])
+    if isinstance(raw_groups, str):
+        groups = {group.strip() for group in raw_groups.split(",") if group.strip()}
+    elif isinstance(raw_groups, list):
+        groups = {str(group).strip() for group in raw_groups if str(group).strip()}
+    else:
+        raise AuthorizationError("unsupported group claim in the access token")
+    if not groups.intersection(config.allowed_groups):
+        logger.warning(
+            "caller is not in an allowed executor group",
+            extra={"groups": sorted(groups)},
+        )
+        raise AuthorizationError("the caller is not authorized to approve rebalances")
 
 
 def _build_broker(runtime: RuntimeSettings) -> AlpacaPaperBroker:

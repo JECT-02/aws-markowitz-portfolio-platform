@@ -29,7 +29,6 @@ from executor.core.models import (
     Reconciliation,
 )
 from executor.core.planning import plan_orders
-from executor.core.prices import ProposalPrices
 from executor.core.state import ExecutionState
 
 logger = get_logger(__name__)
@@ -53,14 +52,12 @@ class RebalanceService:
         self,
         state: ExecutionState,
         broker: BrokerPort,
-        prices: ProposalPrices,
         config: ExecutorConfig,
         clock: Clock,
         waiter: Callable[[float], None] | None = None,
     ) -> None:
         self._state = state
         self._broker = broker
-        self._prices = prices
         self._config = config
         self._clock = clock
         self._waiter = waiter if waiter is not None else time.sleep
@@ -134,7 +131,15 @@ class RebalanceService:
         record: ProposalRecord,
         current_prices: Mapping[str, float],
     ) -> None:
-        reference = self._prices.load(record.run_date)
+        # N-15: the drift reference is the adjusted close for the proposal's
+        # run date re-fetched at execution time, so both sides share the
+        # adjustment basis in effect today. Comparing against the prices
+        # stored at proposal time would misread splits and dividend
+        # rebasings as drift and reject valid proposals.
+        reference = {
+            symbol: self._broker.get_adjusted_close(symbol, record.run_date)
+            for symbol in sorted(current_prices)
+        }
         try:
             check_price_drift(reference, current_prices, self._config.max_price_drift_pct)
         except PriceDriftExceeded:

@@ -48,6 +48,18 @@ variable "executor_execution_timeout_seconds" {
   }
 }
 
+variable "executor_allowed_groups" {
+  type        = string
+  description = "Comma-separated Cognito groups allowed to approve a rebalance (N-16)."
+  default     = "executors"
+}
+
+resource "aws_cognito_user_group" "executors" {
+  name         = var.executor_allowed_groups
+  user_pool_id = aws_cognito_user_pool.users.id
+  description  = "Users allowed to approve and execute rebalance proposals (AGENTS.md 6.1)."
+}
+
 resource "aws_ecr_repository" "executor" {
   name                 = "${var.project}-executor-${var.env}"
   image_tag_mutability = "IMMUTABLE"
@@ -196,6 +208,7 @@ resource "aws_lambda_function" "executor" {
       EXECUTOR_MIN_ORDER_NOTIONAL        = tostring(var.executor_min_order_notional)
       EXECUTOR_MAX_PRICE_DRIFT_PCT       = tostring(var.executor_max_price_drift_pct)
       EXECUTOR_EXECUTION_TIMEOUT_SECONDS = tostring(var.executor_execution_timeout_seconds)
+      EXECUTOR_ALLOWED_GROUPS            = var.executor_allowed_groups
     }
   }
 

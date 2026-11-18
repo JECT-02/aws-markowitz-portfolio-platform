@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
+from common.errors import BrokerError
 from common.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
 
 
@@ -34,6 +35,7 @@ class SimulatedBroker:
         partial_fill_ratio: dict[str, float] | None = None,
         reject_symbols: set[str] | None = None,
         unknown_orders: set[str] | None = None,
+        adjusted_closes: dict[str, float] | None = None,
     ) -> None:
         self._positions: dict[str, BrokerPosition] = {
             position.symbol: position for position in positions
@@ -44,6 +46,8 @@ class SimulatedBroker:
         if any(price <= 0.0 for price in prices.values()):
             raise ValueError("prices must be positive")
         self._prices = prices
+        self._adjusted_closes = adjusted_closes
+        self._last_adjusted_close_request: tuple[str, date] | None = None
         self._market_open = market_open
         self._partial_fill_ratio = partial_fill_ratio or {}
         self._reject_symbols = reject_symbols or set()
@@ -68,6 +72,15 @@ class SimulatedBroker:
         if symbol not in self._prices:
             raise KeyError(f"no simulated price for {symbol}")
         return self._prices[symbol]
+
+    def get_adjusted_close(self, symbol: str, as_of: date) -> float:
+        """Return the simulated adjusted close; defaults to the live prices."""
+        symbol = symbol.strip().upper()
+        closes = self._adjusted_closes if self._adjusted_closes is not None else self._prices
+        if symbol not in closes:
+            raise BrokerError(f"no simulated adjusted close for {symbol}")
+        self._last_adjusted_close_request = (symbol, as_of)
+        return closes[symbol]
 
     def set_price(self, symbol: str, price: float) -> None:
         if price <= 0.0:

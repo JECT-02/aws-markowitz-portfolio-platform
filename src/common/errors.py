@@ -63,3 +63,7 @@ class MarketClosed(PortfolioError):
 
 class PriceDriftExceeded(PortfolioError):
     """Raised when current prices deviate beyond the configured threshold."""
+
+
+class AuthorizationError(PortfolioError):
+    """Raised when the caller is authenticated but not authorized (N-16)."""

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from alpaca.common.enums import BaseURL
 from alpaca.common.exceptions import APIError
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import Adjustment, DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestTradeRequest
+from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide as AlpacaOrderSide
 from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
@@ -15,12 +17,18 @@ from alpaca.trading.enums import OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
 from common.errors import BrokerError, ConfigurationError
+from common.logging import get_logger
 from common.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
+
+logger = get_logger(__name__)
 
 _PAPER_TRADING_URL = BaseURL.TRADING_PAPER.value
 
 # Alpaca order statuses that end the lifecycle without a fill. They map to
 # REJECTED so the executor treats them as terminal and never waits on them.
+# REPLACED is deliberately NOT here (N-26): a replaced order may still be
+# alive under another id, so it maps to UNKNOWN and polling continues until
+# the reconciliation reads the real positions.
 _REJECTED_STATUSES = frozenset(
     {
         AlpacaOrderStatus.REJECTED,
@@ -29,7 +37,6 @@ _REJECTED_STATUSES = frozenset(
         AlpacaOrderStatus.DONE_FOR_DAY,
         AlpacaOrderStatus.STOPPED,
         AlpacaOrderStatus.SUSPENDED,
-        AlpacaOrderStatus.REPLACED,
         AlpacaOrderStatus.CALCULATED,
     }
 )
@@ -45,6 +52,7 @@ _OPEN_STATUSES = frozenset(
         AlpacaOrderStatus.PENDING_CANCEL,
         AlpacaOrderStatus.PENDING_REPLACE,
         AlpacaOrderStatus.HELD,
+        AlpacaOrderStatus.REPLACED,
     }
 )
 
@@ -128,6 +136,11 @@ class AlpacaPaperBroker:
         positions: list[BrokerPosition] = []
         for raw in raw_positions:
             symbol = str(raw.symbol).strip().upper()
+            # Alpaca can report null qty/current_price for freshly opened or
+            # unquoted positions; float(None) would raise an unclassified
+            # TypeError, so the failure is mapped to BrokerError (N-14).
+            if raw.qty is None or raw.current_price is None:
+                raise BrokerError(f"alpaca reported a null quantity or price for {symbol}")
             quantity = float(raw.qty)
             if not math.isfinite(quantity) or quantity < 0.0:
                 raise BrokerError(f"alpaca reported an unusable quantity for {symbol}: {quantity}")
@@ -163,6 +176,40 @@ class AlpacaPaperBroker:
             raise BrokerError(f"alpaca returned an unusable price for {symbol}: {price}")
         return price
 
+    def get_adjusted_close(self, symbol: str, as_of: date) -> float:
+        """Return the split/dividend-adjusted daily close for ``as_of``.
+
+        The adjusted basis is the one in effect today, so the result is
+        directly comparable with the live latest trade (N-15): corporate
+        actions between the proposal date and now rebalance the historical
+        series instead of distorting the executor's drift check.
+        """
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=TimeFrame(amount=1, unit=TimeFrameUnit.Day),
+            adjustment=Adjustment.ALL,
+            start=datetime(as_of.year, as_of.month, as_of.day, tzinfo=UTC),
+            end=datetime(as_of.year, as_of.month, as_of.day, tzinfo=UTC) + timedelta(days=1),
+            feed=self._feed,
+        )
+        try:
+            bars = self._data.get_stock_bars(request)
+        except APIError as exc:
+            raise BrokerError(f"adjusted close request failed for {symbol}") from exc
+        bar_set = bars.get(symbol) if isinstance(bars, dict) else None
+        series = list(getattr(bar_set, "bars", []) or [])
+        close = next(
+            (float(bar.close) for bar in reversed(series) if bar.date.date() == as_of),
+            None,
+        )
+        if close is None:
+            raise BrokerError(
+                f"alpaca returned no adjusted close for {symbol} on {as_of.isoformat()}"
+            )
+        if not math.isfinite(close) or close <= 0.0:
+            raise BrokerError(f"alpaca returned an unusable adjusted close for {symbol}: {close}")
+        return close
+
     def submit_order(
         self,
         client_order_id: str,
@@ -191,8 +238,45 @@ class AlpacaPaperBroker:
         try:
             order = self._trading.get_order_by_client_id(client_order_id)
         except APIError as exc:
+            if _is_not_found(exc):
+                # 404: the order is not (yet) visible by client_order_id.
+                # Report UNKNOWN so the bounded polling continues and a
+                # timeout never escalates to a blind resend (AGENTS.md 6.15).
+                logger.warning(
+                    "order not found yet by client_order_id",
+                    extra={"client_order_id": client_order_id},
+                )
+                return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
             raise BrokerError(f"alpaca order lookup failed for {client_order_id}") from exc
         return _snapshot(order, client_order_id)
+
+
+def _is_not_found(exc: APIError) -> bool:
+    """Best-effort 404 detection across alpaca-py error shapes (N-26).
+
+    ``APIError.status_code`` is only populated when the library attaches an
+    ``HTTPError``; older or mocked errors may carry the code as a plain int
+    or as the JSON ``code`` field.
+    """
+    status: int | None = exc.status_code
+    if status is None:
+        http_error = getattr(exc, "_http_error", None)
+        if isinstance(http_error, int):
+            status = http_error
+        else:
+            payload = getattr(exc, "_error", None)
+            if isinstance(payload, dict) and isinstance(payload.get("code"), int):
+                status = int(payload["code"])
+            else:
+                try:
+                    candidate = exc.code
+                    status = int(candidate) if candidate is not None else None
+                except (KeyError, TypeError, ValueError):
+                    # exc.code json-parses the raw error payload; a non-json
+                    # message (TypeError) or an object without "code"
+                    # (KeyError) carries no http status to match.
+                    status = None
+    return status == 404
 
 
 def _snapshot(order: Any, client_order_id: str) -> OrderSnapshot:
