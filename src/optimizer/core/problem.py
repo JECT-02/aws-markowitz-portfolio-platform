@@ -75,6 +75,11 @@ class MarkowitzOptimizer:
         self._gamma.value = gamma
         self._lambda.value = transaction_cost_lambda
         try:
+            # ignore_dpp is required, not an oversight (L-05, verified): the
+            # covariance is a cp.Parameter and CVXPY's DPP rules forbid a
+            # parameter matrix inside quad_form/sum_squares, so this problem
+            # can never be DPP. The cp.Parameter values still avoid rebuilding
+            # the problem object; each solve re-canonicalizes as documented.
             self._problem.solve(solver=self._solver, verbose=False, ignore_dpp=True)
         except cp.SolverError as exc:
             raise SolverError("solver failed") from exc
