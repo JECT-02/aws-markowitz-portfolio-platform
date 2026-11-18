@@ -27,7 +27,7 @@ def main() -> int:
     runtime = RuntimeSettings.from_environment()
     storage_settings = StorageSettings.from_environment()
     universe = load_universe_config(runtime.config_dir / "universe.yaml")
-    strategy = StrategyConfig.from_environment()
+    strategy = StrategyConfig.from_yaml(runtime.config_dir / "strategy.yaml")
     repository = SilverReturnsRepository(
         S3Storage(region_name=runtime.aws_region), storage_settings.silver_bucket
     )

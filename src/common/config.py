@@ -115,6 +115,36 @@ class StrategyConfig(BaseModel):
     validation_windows: list[int] = Field(min_length=1)
     validation_folds: int = Field(ge=2)
 
+    @classmethod
+    def from_yaml(cls, path: Path) -> StrategyConfig:
+        """Build strategy parameters straight from config/strategy.yaml (L-17).
+
+        Applies the same translation Terraform uses (scalars become strings,
+        lists join with commas) so local runs always consume the exact values
+        the lambdas receive, instead of a hand-copied .env copy.
+        """
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict) or set(document) != set(_STRATEGY_ENV):
+            raise ConfigurationError(
+                f"{path} must define exactly the strategy fields: "
+                + ", ".join(sorted(_STRATEGY_ENV))
+            )
+
+        def _scalar(value: object) -> str:
+            if value is None or isinstance(value, (dict, list)):
+                raise ConfigurationError(f"{path}: {value!r} is not a scalar value")
+            return str(value)
+
+        rendered = {
+            env_name: (
+                ",".join(_scalar(item) for item in document[field])
+                if isinstance(document[field], list)
+                else _scalar(document[field])
+            )
+            for field, env_name in _STRATEGY_ENV.items()
+        }
+        return cls.from_environment(rendered)
+
     @model_validator(mode="after")
     def _validate_history_coherence(self) -> StrategyConfig:
         """Fail at deploy time on an impossible history configuration (N-18)."""
