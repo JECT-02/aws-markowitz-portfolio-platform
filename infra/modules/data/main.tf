@@ -27,17 +27,29 @@ locals {
     }
     silver = {
       versioned       = false
-      expiration_days = 400
-      description     = "clean log returns (Parquet+Snappy)"
+      expiration_days = var.lakehouse_expiration_days
+      description     = "clean log returns (Parquet+Snappy); must outlive the backtest history window"
     }
     gold = {
       versioned       = false
-      expiration_days = 400
+      expiration_days = var.lakehouse_expiration_days
       description     = "served artifacts (w*, metrics, latest.json)"
     }
   }
 
   dlq_names = ["ingest", "clean", "optimizer", "schedule", "monitor", "backtest"]
+}
+
+variable "lakehouse_expiration_days" {
+  type        = number
+  description = "Object expiration in days for the silver and gold buckets; it must cover the backtest history requirement (see the guard in infra/envs/dev/main.tf)."
+
+  validation {
+    # Null-tolerant: terraform validate evaluates the rule with no value
+    # assigned; an unset required variable still fails at plan/apply.
+    condition     = var.lakehouse_expiration_days == null || var.lakehouse_expiration_days > 0
+    error_message = "lakehouse_expiration_days must be a positive number of days."
+  }
 }
 
 variable "project" {

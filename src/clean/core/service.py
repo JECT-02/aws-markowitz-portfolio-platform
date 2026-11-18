@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 import pyarrow as pa
 from pydantic import ValidationError
@@ -96,13 +98,13 @@ class CleanService:
         return parse_series(raw)
 
     def _write_partitions(self, metadata: RunMetadata, aligned: AlignedReturns) -> list[str]:
-        grouped: dict[tuple[int, int], list[dict[str, object]]] = {}
+        grouped: dict[date, list[dict[str, object]]] = {}
         for timestamp in aligned.frame.index:
             moment = pd.Timestamp(str(timestamp))
-            bucket = grouped.setdefault((moment.year, moment.month), [])
+            records = grouped.setdefault(moment.date(), [])
             row = aligned.frame.loc[timestamp]
             for symbol, value in row.items():
-                bucket.append(
+                records.append(
                     {
                         "date": moment.date(),
                         "symbol": str(symbol),
@@ -110,8 +112,13 @@ class CleanService:
                     }
                 )
         partitions: list[str] = []
-        for (year, month), records in sorted(grouped.items()):
-            key = f"year={year:04d}/month={month:02d}/returns.parquet"
+        for day, records in sorted(grouped.items()):
+            # Immutable per-day partitions, first write wins (AGENTS.md 7.1):
+            # the moving fetch window never rewrites a partition, so history
+            # is never truncated and a rerun of the same date is idempotent.
+            key = f"year={day.year:04d}/month={day.month:02d}/day={day.day:02d}/returns.parquet"
+            if self._storage.exists(self._silver_bucket, key):
+                continue
             table = pa.Table.from_pylist(records, schema=_SILVER_SCHEMA)
             table = table.replace_schema_metadata(
                 {

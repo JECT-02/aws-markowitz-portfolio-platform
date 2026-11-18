@@ -4,8 +4,23 @@ variables {
   project = "portfolio-markowitz-aws"
   env     = "dev"
 
+  # Silver/gold retention must cover the backtest history window (G-10).
+  lakehouse_expiration_days = 1100
+
   alpaca_api_key_parameter    = "/portfolio-markowitz/dev/alpaca/api-key"
   alpaca_secret_key_parameter = "/portfolio-markowitz/dev/alpaca/secret-key"
+}
+
+run "silver_and_gold_expire_with_the_configured_window" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for name in ["silver", "gold"] :
+      aws_s3_bucket_lifecycle_configuration.lakehouse[name].rule[0].expiration[0].days == var.lakehouse_expiration_days
+    ])
+    error_message = "Silver and gold must expire with the configured lakehouse window so the backtest history survives."
+  }
 }
 
 run "bronze_bucket_is_versioned" {

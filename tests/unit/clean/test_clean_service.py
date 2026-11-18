@@ -16,7 +16,7 @@ class _MemoryStorage:
         self.parquet_objects: dict[tuple[str, str], pa.Table] = {}
 
     def exists(self, bucket: str, key: str) -> bool:
-        return (bucket, key) in self.json_objects
+        return (bucket, key) in self.json_objects or (bucket, key) in self.parquet_objects
 
     def write_json_if_absent(self, bucket: str, key: str, payload: dict[str, Any]) -> bool:
         if self.exists(bucket, key):
@@ -79,16 +79,20 @@ def test_writes_silver_partition_with_metadata() -> None:
     storage = _storage({"SPY": {2: 100.0, 3: 110.0, 4: 99.0}})
     service = CleanService(storage, "bronze", "silver")
     result = service.run(_metadata(), ["SPY"], 0)
-    assert result.partitions == ["year=2024/month=01/returns.parquet"]
+    # One immutable partition per trading day: day 3 return and day 4 return.
+    assert result.partitions == [
+        "year=2024/month=01/day=03/returns.parquet",
+        "year=2024/month=01/day=04/returns.parquet",
+    ]
     table = storage.parquet_objects[("silver", result.partitions[0])]
     assert table.column_names == ["date", "symbol", "log_return"]
-    assert table.num_rows == 2
+    assert table.num_rows == 1
     assert table.schema.metadata is not None
     assert table.schema.metadata[b"run_id"] == b"run-1"
     assert table.schema.metadata[b"source"] == b"alpaca"
-    values = table.column("log_return").to_pylist()
-    assert values[0] == pytest.approx(0.09531017980432493)
-    assert values[1] == pytest.approx(-0.10536051565782628)
+    assert table.column("log_return").to_pylist() == [pytest.approx(0.09531017980432493)]
+    fourth = storage.parquet_objects[("silver", result.partitions[1])]
+    assert fourth.column("log_return").to_pylist() == [pytest.approx(-0.10536051565782628)]
 
 
 def test_missing_bronze_symbol_is_reported() -> None:
@@ -118,9 +122,12 @@ def test_quarantined_series_never_reach_silver() -> None:
     result = service.run(_metadata(), ["SPY", "QQQ"], 0)
     assert result.used == ["QQQ"]
     assert result.excluded == {"SPY": "invalid_data"}
-    assert storage.parquet_objects[("silver", "year=2024/month=01/returns.parquet")].column(
+    assert storage.parquet_objects[("silver", "year=2024/month=01/day=03/returns.parquet")].column(
         "symbol"
-    ).to_pylist() == ["QQQ", "QQQ"]
+    ).to_pylist() == ["QQQ"]
+    assert storage.parquet_objects[("silver", "year=2024/month=01/day=04/returns.parquet")].column(
+        "symbol"
+    ).to_pylist() == ["QQQ"]
 
 
 def test_all_symbols_invalid_is_rejected() -> None:
@@ -170,6 +177,22 @@ def test_returns_spanning_months_write_multiple_partitions() -> None:
     service = CleanService(storage, "bronze", "silver")
     result = service.run(metadata, ["SPY"], 0)
     assert result.partitions == [
-        "year=2024/month=01/returns.parquet",
-        "year=2024/month=02/returns.parquet",
+        "year=2024/month=01/day=31/returns.parquet",
+        "year=2024/month=02/day=01/returns.parquet",
     ]
+
+
+def test_rerun_never_rewrites_an_existing_partition() -> None:
+    """G-15: two consecutive runs keep history; first write wins per day."""
+    storage = _storage({"SPY": {2: 100.0, 3: 110.0, 4: 99.0}})
+    service = CleanService(storage, "bronze", "silver")
+    first = service.run(_metadata(), ["SPY"], 0)
+    second_metadata = _metadata().model_copy(
+        update={"run_id": "run-2", "fetched_at": datetime(2024, 1, 3, 22, 0, tzinfo=UTC)}
+    )
+    # A later run with a shifted window must not replace earlier partitions.
+    second = service.run(second_metadata, ["SPY"], 0)
+    assert second.partitions == []  # every partition already exists
+    assert sorted(storage.parquet_objects) == sorted(("silver", key) for key in first.partitions)
+    earliest = storage.parquet_objects[("silver", first.partitions[0])]
+    assert earliest.schema.metadata[b"run_id"] == b"run-1"

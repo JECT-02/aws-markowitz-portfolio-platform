@@ -1,18 +1,43 @@
 locals {
+  # config/strategy.yaml rendered to the lambda environment variables the
+  # pipeline module expects (same translation as infra/config.py: scalars
+  # become strings, lists join with commas). Null values render as empty
+  # strings so the module variable validation fails with a clear message
+  # instead of a cryptic tostring(null) crash.
+  strategy_raw = yamldecode(file("${path.module}/../../../config/strategy.yaml"))
   strategy_values = {
-    risk_aversion           = "2"
-    transaction_cost_lambda = "0.001"
-    return_shrinkage_alpha  = "0.5"
-    risk_free_rate_annual   = "0.04"
-    max_forward_fill_days   = "2"
-    window_days             = "252"
-    ingest_lookback_days    = "420"
-    rebalance_l1_threshold  = "0.1"
-    validation_gammas       = "1,2"
-    validation_lambdas      = "0,0.001"
-    validation_alphas       = "0,0.5"
-    validation_windows      = "126,252"
-    validation_folds        = "3"
+    for field, value in local.strategy_raw :
+    field => value == null ? "" : (can(tostring(value)) ? tostring(value) : join(",", [for item in value : tostring(item)]))
+  }
+
+  # Backtest history guard (mistakes.md G-10): the weekly backtest needs
+  # 0.8 * n_observations >= 2 * longest validation window, and the daily
+  # ingest accumulates one trading day per run. 252/365 converts the
+  # calendar lookback to trading days; +30 keeps a safety margin.
+  ingest_lookback_days      = parseint(local.strategy_values["ingest_lookback_days"], 10)
+  longest_validation_window = max([for raw in split(",", local.strategy_values["validation_windows"]) : parseint(trimspace(raw), 10)]...)
+  required_trading_days     = ceil(local.longest_validation_window * 2 / 0.8) + 30
+  expected_trading_days     = floor(local.ingest_lookback_days * 252 / 365)
+  lakehouse_expiration_days = local.ingest_lookback_days + 100
+}
+
+resource "terraform_data" "backtest_history_guard" {
+  lifecycle {
+    precondition {
+      condition     = local.expected_trading_days >= local.required_trading_days
+      error_message = "ingest_lookback_days is too short for temporal validation: the backtest needs 0.8 * observations >= 2 * the longest validation window (plus a 30-day margin), and the silver lakehouse only accumulates one trading day per run."
+    }
+    precondition {
+      condition     = local.lakehouse_expiration_days >= local.ingest_lookback_days + 30
+      error_message = "silver/gold expiration must outlive the ingest lookback window, or the backtest history is deleted before the backtest can read it."
+    }
+  }
+
+  input = {
+    ingest_lookback_days      = local.ingest_lookback_days
+    expected_trading_days     = local.expected_trading_days
+    required_trading_days     = local.required_trading_days
+    lakehouse_expiration_days = local.lakehouse_expiration_days
   }
 }
 
@@ -21,6 +46,8 @@ module "data" {
 
   project = "portfolio-markowitz-aws"
   env     = var.env
+
+  lakehouse_expiration_days = local.lakehouse_expiration_days
 
   alpaca_api_key_parameter    = var.alpaca_api_key_parameter
   alpaca_secret_key_parameter = var.alpaca_secret_key_parameter
