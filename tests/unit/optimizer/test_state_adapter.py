@@ -138,7 +138,8 @@ def test_proposal_is_persisted_with_decimals(state: DynamoPortfolioState) -> Non
     assert item["run_id"]["S"] == "run-1"
 
 
-def test_duplicate_proposal_keeps_the_first_version(state: DynamoPortfolioState) -> None:
+def test_failure_replaces_a_pending_proposal(state: DynamoPortfolioState) -> None:
+    """N-22: the executor must never run a proposal whose latest attempt failed."""
     metadata = _metadata()
     state.write_proposal(_proposal(metadata))
     state.write_failure(proposal_identifier(metadata), metadata, "solver failed")
@@ -146,7 +147,46 @@ def test_duplicate_proposal_keeps_the_first_version(state: DynamoPortfolioState)
         TableName=TABLE,
         Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": "2025-02-03-run-1"}},
     )["Item"]
+    assert item["status"]["S"] == "FAILED"
+    assert item["error"]["S"] == "solver failed"
+
+
+def test_a_rerun_corrects_a_pending_proposal(state: DynamoPortfolioState) -> None:
+    metadata = _metadata()
+    state.write_proposal(_proposal(metadata))
+    corrected = _proposal(metadata).model_copy(update={"weights": {"SPY": 0.5, "QQQ": 0.5}})
+    state.write_proposal(corrected)
+    item = state._client.get_item(
+        TableName=TABLE,
+        Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": "2025-02-03-run-1"}},
+    )["Item"]
     assert item["status"]["S"] == "PENDING"
+    assert item["w_star"]["M"]["SPY"]["N"] == "0.5"
+
+
+def test_a_final_proposal_is_never_overwritten(state: DynamoPortfolioState) -> None:
+    metadata = _metadata()
+    state._client.put_item(
+        TableName=TABLE,
+        Item={
+            "pk": {"S": "PROPOSAL"},
+            "sk": {"S": "2025-02-03-run-1"},
+            "status": {"S": "EXECUTED"},
+            "w_star": {"M": {"SPY": {"N": "0.6"}, "QQQ": {"N": "0.4"}}},
+            "created_at": {"S": "2025-02-03T21:00:00+00:00"},
+            "expires_at": {"S": "2025-02-04T21:00:00+00:00"},
+            "run_date": {"S": "2025-02-03"},
+        },
+    )
+    state.write_proposal(
+        _proposal(metadata).model_copy(update={"weights": {"SPY": 0.5, "QQQ": 0.5}})
+    )
+    item = state._client.get_item(
+        TableName=TABLE,
+        Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": "2025-02-03-run-1"}},
+    )["Item"]
+    assert item["status"]["S"] == "EXECUTED"
+    assert item["w_star"]["M"]["SPY"]["N"] == "0.6"
 
 
 def test_failure_is_persisted_without_weights(state: DynamoPortfolioState) -> None:

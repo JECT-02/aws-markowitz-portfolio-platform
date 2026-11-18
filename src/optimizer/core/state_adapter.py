@@ -85,7 +85,7 @@ class DynamoPortfolioState:
             "drift_l1": _number(proposal.drift_l1),
             "rebalance_required": {"BOOL": proposal.rebalance_required},
         }
-        self._put_if_absent(item, proposal.proposal_id)
+        self._put_proposal_item(item, proposal.proposal_id)
 
     def write_failure(self, proposal_id: str, metadata: RunMetadata, reason: str) -> None:
         created_at = metadata.fetched_at.astimezone(UTC)
@@ -101,7 +101,7 @@ class DynamoPortfolioState:
             "run_id": {"S": metadata.run_id},
             "code_version": {"S": metadata.code_version},
         }
-        self._put_if_absent(item, proposal_id)
+        self._put_proposal_item(item, proposal_id)
 
     def _get_item(self, partition: str, sort_key: str) -> Mapping[str, Any] | None:
         try:
@@ -117,18 +117,32 @@ class DynamoPortfolioState:
             return None
         return cast(Mapping[str, Any], item)
 
-    def _put_if_absent(self, item: dict[str, Any], proposal_id: str) -> None:
+    def _put_proposal_item(self, item: dict[str, Any], proposal_id: str) -> None:
+        """Create the proposal item, or replace it while it is unexecuted.
+
+        N-22: a rerun of the same proposal may correct a stale or partial
+        version, and a later failure may replace an unexecuted proposal (the
+        executor must never execute a proposal whose latest attempt failed).
+        FINAL statuses (EXECUTING/EXECUTED/PARTIAL/FAILED) are never
+        overwritten: the conditional write keeps the first final outcome.
+        """
         try:
             self._client.put_item(
                 TableName=self._table_name,
                 Item=item,
-                ConditionExpression="attribute_not_exists(pk)",
+                ConditionExpression=(
+                    "attribute_not_exists(pk) OR #status IN (:pending, :no_rebalance)"
+                ),
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":pending": {"S": "PENDING"},
+                    ":no_rebalance": {"S": "NO_REBALANCE"},
+                },
             )
         except ClientError as exc:
-            code = exc.response.get("Error", {}).get("Code")
-            if code == "ConditionalCheckFailedException":
+            if _is_conditional_failure(exc):
                 logger.warning(
-                    "proposal already persisted",
+                    "proposal is final and stays untouched",
                     extra={"proposal_id": proposal_id},
                 )
                 return
@@ -141,6 +155,10 @@ def _number(value: float) -> dict[str, str]:
     if not math.isfinite(value):
         raise DataValidationError("state values must be finite")
     return {"N": str(Decimal(str(value)))}
+
+
+def _is_conditional_failure(exc: ClientError) -> bool:
+    return exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException"
 
 
 def _validate_weights(weights: Mapping[str, float]) -> None:
