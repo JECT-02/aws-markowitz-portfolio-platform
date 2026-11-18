@@ -9,10 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class DataSource(StrEnum):
-    """Supported market data sources."""
+    """Supported market data sources.
+
+    ``mixed`` is only written as artifact metadata (a weekly backtest may
+    consume silver days ingested from both sources); it is never accepted as
+    an event source by the handlers.
+    """
 
     ALPACA = "alpaca"
     YFINANCE = "yfinance"
+    MIXED = "mixed"
 
 
 class Bar(BaseModel):

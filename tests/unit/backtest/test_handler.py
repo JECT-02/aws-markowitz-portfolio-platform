@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 
 import boto3
@@ -13,7 +13,7 @@ from backtest.core.artifacts import BACKTEST_KEY_TEMPLATE, BACKTEST_LATEST_KEY, 
 from backtest.core.validation import ParameterCandidate, PeriodMetrics, ValidationResult
 from backtest.handler import BacktestDependencies, run_backtest
 from common.config import StrategyConfig, UniverseConfig
-from common.errors import DataValidationError
+from common.errors import ConfigurationError, DataValidationError
 from common.storage import S3Storage
 from optimizer.core.repository import ReturnsMatrix
 
@@ -66,6 +66,7 @@ def _matrix() -> ReturnsMatrix:
         dates=dates,
         values=[[0.001] * len(SYMBOLS)] * 5,
         excluded={},
+        sources=frozenset({"alpaca"}),
     )
 
 
@@ -213,3 +214,29 @@ def test_backtest_failure_leaves_no_artifacts(gold: None) -> None:
     with pytest.raises(DataValidationError):
         run_backtest({}, deps)  # type: ignore[arg-type]
     assert _gold_keys() == []
+
+
+def test_backtest_attributes_the_report_to_the_yfinance_silver(gold: None) -> None:
+    deps, _repository = _deps(
+        replace(_matrix(), sources=frozenset({"yfinance"})),
+        _FakeValidation(_result()),
+    )
+    run_backtest({}, deps)  # type: ignore[arg-type]
+    artifact = _read(BACKTEST_KEY_TEMPLATE.format(run_date="2026-02-09"))
+    assert artifact["metadata"]["source"] == "yfinance"
+
+
+def test_backtest_labels_mixed_silver_data(gold: None) -> None:
+    deps, _repository = _deps(
+        replace(_matrix(), sources=frozenset({"alpaca", "yfinance"})),
+        _FakeValidation(_result()),
+    )
+    run_backtest({}, deps)  # type: ignore[arg-type]
+    artifact = _read(BACKTEST_KEY_TEMPLATE.format(run_date="2026-02-09"))
+    assert artifact["metadata"]["source"] == "mixed"
+
+
+def test_backtest_without_source_metadata_fails_closed(gold: None) -> None:
+    deps, _repository = _deps(replace(_matrix(), sources=frozenset()), _FakeValidation(_result()))
+    with pytest.raises(ConfigurationError):
+        run_backtest({}, deps)  # type: ignore[arg-type]

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from backtest.core.models import BacktestReport
+from backtest.core.sources import resolve_report_source
 from backtest.core.validation import TemporalValidation
 from common.clock import SystemClock
 from common.config import (
@@ -14,7 +15,7 @@ from common.config import (
 )
 from common.env import load_env_file
 from common.logging import configure_logging
-from common.models import DataSource, RunMetadata
+from common.models import RunMetadata
 from common.storage import S3Storage
 from optimizer.core.repository import SilverReturnsRepository
 
@@ -45,7 +46,7 @@ def main() -> int:
         run_id=f"local-{matrix.dates[-1].isoformat()}",
         run_date=matrix.dates[-1],
         code_version=runtime.code_version,
-        source=DataSource.ALPACA,
+        source=resolve_report_source(matrix.sources),
         fetched_at=clock.now(),
     )
     report = BacktestReport.from_validation_result(result, metadata, clock.now())
