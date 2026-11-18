@@ -62,7 +62,7 @@ jobs:
           severity: HIGH,CRITICAL
       - name: Terraform module tests (mocked providers)
         run: |
-          for module in data pipeline api web; do
+          for module in data pipeline backtest api web; do
             (cd "infra/modules/$module" && terraform init -backend=false && terraform test)
           done
 
