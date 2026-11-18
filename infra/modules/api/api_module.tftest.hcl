@@ -250,7 +250,7 @@ run "executor_carries_the_allowed_groups_and_the_cognito_group" {
   command = plan
 
   assert {
-    condition = aws_lambda_function.executor.environment[0].variables.EXECUTOR_ALLOWED_GROUPS == var.executor_allowed_groups && aws_cognito_user_group.executors.name == var.executor_allowed_groups
+    condition     = aws_lambda_function.executor.environment[0].variables.EXECUTOR_ALLOWED_GROUPS == var.executor_allowed_groups && aws_cognito_user_group.executors.name == var.executor_allowed_groups
     error_message = "The executor must declare the allowed Cognito group and the group must exist (N-16)."
   }
 }
