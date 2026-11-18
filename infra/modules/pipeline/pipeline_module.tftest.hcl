@@ -347,3 +347,13 @@ run "monitor_schedule_uses_the_15_minute_ny_cron" {
     error_message = "Schedule failures must land in the monitor DLQ."
   }
 }
+
+run "image_tag_must_be_an_immutable_digest" {
+  command = plan
+
+  variables {
+    image_tag = "v1.2.3"
+  }
+
+  expect_failures = [var.image_tag]
+}

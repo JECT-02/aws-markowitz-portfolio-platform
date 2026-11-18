@@ -41,8 +41,8 @@ variable "image_tag" {
   description = "Pinned ECR tag or digest for the Reader image. NEVER 'latest' (AGENTS.md section 11.2)."
 
   validation {
-    condition     = var.image_tag != "" && var.image_tag != "latest"
-    error_message = "image_tag must be a pinned tag or digest; 'latest' is forbidden."
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.image_tag))
+    error_message = "image_tag must be an immutable sha256 digest (sha256:<64 hex>); mutable tags and 'latest' are forbidden (AGENTS.md 11.2)."
   }
 }
 

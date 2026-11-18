@@ -254,3 +254,13 @@ run "executor_carries_the_allowed_groups_and_the_cognito_group" {
     error_message = "The executor must declare the allowed Cognito group and the group must exist (N-16)."
   }
 }
+
+run "image_tag_must_be_an_immutable_digest" {
+  command = plan
+
+  variables {
+    image_tag = "v1.2.3"
+  }
+
+  expect_failures = [var.image_tag]
+}
