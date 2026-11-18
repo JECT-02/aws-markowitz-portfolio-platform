@@ -47,18 +47,39 @@ def _event(
     route: str = "POST /rebalance",
     proposal_id: str = "2026-11-13-run-abc",
     idempotency_key: str | None = "key-1",
+    groups: str | None = "executors",
 ) -> dict[str, Any]:
     headers = {"idempotency-key": idempotency_key} if idempotency_key else {}
     body = {"proposal_id": proposal_id} if proposal_id else {}
-    return {
+    event: dict[str, Any] = {
         "routeKey": route,
         "headers": headers,
         "body": json.dumps(body),
     }
+    # The JWT authorizer forwards these claims on real invocations (N-16).
+    claims: dict[str, Any] = {"sub": "user-1"}
+    if groups is not None:
+        claims["cognito:groups"] = groups
+    event["requestContext"] = {"authorizer": {"jwt": {"claims": claims}}}
+    return event
 
 
-def _deps(service: Any) -> ExecutorDependencies:
-    return ExecutorDependencies(service=service)  # type: ignore[arg-type]
+def _config(allowed_groups: list[str] | None = None) -> ExecutorConfig:
+    return ExecutorConfig.model_validate(
+        {
+            "min_order_notional": 50.0,
+            "max_price_drift_pct": 0.02,
+            "execution_timeout_seconds": 15,
+            "allowed_groups": ["executors"] if allowed_groups is None else allowed_groups,
+        }
+    )
+
+
+def _deps(service: Any, allowed_groups: list[str] | None = None) -> ExecutorDependencies:
+    return ExecutorDependencies(
+        service=service,  # type: ignore[arg-type]
+        config=_config(allowed_groups),
+    )
 
 
 def _result() -> ExecutionResult:
@@ -99,13 +120,27 @@ def test_missing_idempotency_key_is_a_client_error() -> None:
 
 
 def test_invalid_body_is_a_client_error() -> None:
-    event = {"routeKey": "POST /rebalance", "headers": {"idempotency-key": "k"}, "body": "not-json"}
+    event = {
+        "routeKey": "POST /rebalance",
+        "headers": {"idempotency-key": "k"},
+        "body": "not-json",
+        "requestContext": {
+            "authorizer": {"jwt": {"claims": {"sub": "u", "cognito:groups": "executors"}}}
+        },
+    }
     response = run_executor(event, _deps(_OkService()))
     assert response["statusCode"] == 400
 
 
 def test_missing_proposal_id_is_a_client_error() -> None:
-    event = {"routeKey": "POST /rebalance", "headers": {"idempotency-key": "k"}, "body": "{}"}
+    event = {
+        "routeKey": "POST /rebalance",
+        "headers": {"idempotency-key": "k"},
+        "body": "{}",
+        "requestContext": {
+            "authorizer": {"jwt": {"claims": {"sub": "u", "cognito:groups": "executors"}}}
+        },
+    }
     response = run_executor(event, _deps(_OkService()))
     assert response["statusCode"] == 400
 
@@ -213,3 +248,25 @@ def _put_pending_proposal(client: Any) -> None:
             "run_date": {"S": "2026-11-13"},
         },
     )
+
+
+def test_caller_outside_the_allowed_group_is_forbidden() -> None:
+    response = run_executor(_event(groups="viewers"), _deps(_OkService()))
+    assert response["statusCode"] == 403
+    assert "authorized" in response["body"]
+
+
+def test_request_without_claims_is_forbidden() -> None:
+    response = run_executor(_event(groups=None), _deps(_OkService()))
+    assert response["statusCode"] == 403
+
+
+def test_an_empty_allowlist_denies_every_caller() -> None:
+    response = run_executor(_event(), _deps(_OkService(), allowed_groups=[]))
+    assert response["statusCode"] == 403
+    assert "no executor group is configured" in response["body"]
+
+
+def test_a_caller_in_any_allowed_group_passes() -> None:
+    response = run_executor(_event(groups="executors,auditors"), _deps(_OkService()))
+    assert response["statusCode"] == 200

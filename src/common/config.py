@@ -219,6 +219,9 @@ class ExecutorConfig(BaseModel):
     min_order_notional: float = Field(gt=0.0)
     max_price_drift_pct: float = Field(gt=0.0, le=1.0)
     execution_timeout_seconds: int = Field(ge=1)
+    # Cognito groups allowed to approve a rebalance (N-16); an empty list
+    # denies every caller (fail closed) until the human configures it.
+    allowed_groups: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> ExecutorConfig:
@@ -234,6 +237,8 @@ class ExecutorConfig(BaseModel):
                 raw[field_name] = value.strip()
         if missing:
             raise ConfigurationError("missing environment variables: " + ", ".join(missing))
+        raw_groups = (source.get("EXECUTOR_ALLOWED_GROUPS") or "").strip()
+        allowed_groups = [group.strip() for group in raw_groups.split(",") if group.strip()]
         try:
             return cls.model_validate(
                 {
@@ -249,6 +254,7 @@ class ExecutorConfig(BaseModel):
                         raw["execution_timeout_seconds"],
                         _EXECUTOR_ENV["execution_timeout_seconds"],
                     ),
+                    "allowed_groups": allowed_groups,
                 }
             )
         except ValidationError as exc:
