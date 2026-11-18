@@ -62,7 +62,7 @@ tf-test:
 	cd infra/modules/web && terraform test
 
 tf-plan:
-	cd infra/envs/$(ENV) && terraform init && terraform plan -out=tfplan
+	cd infra/envs/$(ENV) && terraform init -backend-config=backend.hcl && terraform plan -out=tfplan
 
 run-optimizer-local:
 	uv run python -m optimizer.local
@@ -71,24 +71,24 @@ run-backtest-local:
 	uv run python -m backtest.local
 
 build-ingest:
-	docker build -f src/ingest/Dockerfile -t portfolio-markowitz-ingest .
+	docker build -f src/ingest/Dockerfile -t portfolio-markowitz-ingest --platform linux/amd64 .
 
 build-clean:
-	docker build -f src/clean/Dockerfile -t portfolio-markowitz-clean .
+	docker build -f src/clean/Dockerfile -t portfolio-markowitz-clean --platform linux/amd64 .
 
 build-optimizer:
-	docker build -f src/optimizer/Dockerfile -t portfolio-markowitz-optimizer .
+	docker build -f src/optimizer/Dockerfile -t portfolio-markowitz-optimizer --platform linux/amd64 .
 
 build-executor:
-	docker build -f src/executor/Dockerfile -t portfolio-markowitz-executor .
+	docker build -f src/executor/Dockerfile -t portfolio-markowitz-executor --platform linux/amd64 .
 
 build-images: build-ingest build-clean build-optimizer build-reader build-executor build-monitor build-backtest
 
 build-backtest:
-	docker build -f src/backtest/Dockerfile -t portfolio-markowitz-backtest .
+	docker build -f src/backtest/Dockerfile -t portfolio-markowitz-backtest --platform linux/amd64 .
 
 build-monitor:
-	docker build -f src/monitor/Dockerfile -t portfolio-markowitz-monitor .
+	docker build -f src/monitor/Dockerfile -t portfolio-markowitz-monitor --platform linux/amd64 .
 
 build-reader:
-	docker build -f src/reader/Dockerfile -t portfolio-markowitz-reader .
+	docker build -f src/reader/Dockerfile -t portfolio-markowitz-reader --platform linux/amd64 .

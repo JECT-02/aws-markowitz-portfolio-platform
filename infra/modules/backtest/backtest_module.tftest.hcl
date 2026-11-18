@@ -175,3 +175,13 @@ run "env_carries_the_buckets_and_code_version" {
     error_message = "Artifacts must record the code version."
   }
 }
+
+run "image_tag_must_be_an_immutable_digest" {
+  command = plan
+
+  variables {
+    image_tag = "v1.2.3"
+  }
+
+  expect_failures = [var.image_tag]
+}

@@ -151,11 +151,11 @@ variable "aws_region" {
 
 variable "optimizer_image_tag" {
   type        = string
-  description = "Pinned ECR tag/digest for the ingest/clean/optimizer images (never 'latest')."
+  description = "Immutable ECR digest (sha256:<64 hex>) for every pipeline/backtest/api image."
   default     = ""
   validation {
-    condition     = var.optimizer_image_tag != "" && var.optimizer_image_tag != "latest"
-    error_message = "Set OPTIMIZER_IMAGE_TAG (a pushed tag or digest); 'latest' is forbidden by AGENTS.md."
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.optimizer_image_tag))
+    error_message = "Set OPTIMIZER_IMAGE_TAG to the image digest (sha256:<64 hex>); mutable tags and 'latest' are forbidden by AGENTS.md."
   }
 }
 

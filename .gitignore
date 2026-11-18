@@ -22,3 +22,7 @@ tfplan
 *.tfplan
 tfplan.json
 .terraform.lock.info
+
+# Per-environment backend overrides carry the real state bucket name (N-17).
+infra/envs/*/backend.hcl
+

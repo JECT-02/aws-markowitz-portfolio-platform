@@ -107,9 +107,18 @@ async function apiGet(path) {
   if (!token) {
     return null;
   }
-  const response = await fetch(`${window.SPA_CONFIG.apiEndpoint}${path}`, {
+  let response = await fetch(`${window.SPA_CONFIG.apiEndpoint}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (response.status === 401) {
+    // The access token expires after one hour; try the refresh token once
+    // (N-06) before treating the session as expired.
+    if (await refreshAccessToken()) {
+      response = await fetch(`${window.SPA_CONFIG.apiEndpoint}${path}`, {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem(STORAGE_KEYS.accessToken)}` },
+      });
+    }
+  }
   if (response.status === 401) {
     sessionStorage.removeItem(STORAGE_KEYS.accessToken);
     return null;
@@ -122,6 +131,32 @@ async function apiGet(path) {
     throw new Error(`request to ${path} failed with status ${response.status}`);
   }
   return response.json();
+}
+
+async function refreshAccessToken() {
+  const refreshToken = sessionStorage.getItem(STORAGE_KEYS.refreshToken);
+  if (!refreshToken) {
+    return false;
+  }
+  try {
+    const response = await fetch(`${window.SPA_CONFIG.cognitoDomain}/oauth2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: window.SPA_CONFIG.clientId,
+        refresh_token: refreshToken,
+      }),
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const tokens = await response.json();
+    sessionStorage.setItem(STORAGE_KEYS.accessToken, tokens.access_token);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function summarize(element, fields) {
@@ -232,10 +267,15 @@ function renderProposal(proposal) {
 
 function renderMonitor(snapshot) {
   document.getElementById("monitor").hidden = false;
+  // The fast loop's live observation (real portfolio) takes precedence over
+  // the proposal snapshot values (N-06).
+  const liveWeights = snapshot.live_weights ?? snapshot.weights;
+  const liveDrift = snapshot.live_drift_l1 ?? snapshot.drift_l1;
   summarize(document.getElementById("monitor-summary"), [
-    ["Weights", Object.keys(snapshot.weights).length + " assets"],
-    ["Drift (L1)", formatPercent(snapshot.drift_l1)],
+    ["Weights", Object.keys(liveWeights).length + " assets"],
+    ["Drift (L1)", formatPercent(liveDrift)],
     ["Reconciled", formatDateTime(snapshot.reconciled_at)],
+    ["Monitor updated", formatDateTime(snapshot.monitor_updated_at)],
     ["From proposal", snapshot.proposal_id],
   ]);
 }

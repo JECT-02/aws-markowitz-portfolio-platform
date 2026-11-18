@@ -5,7 +5,7 @@ from datetime import date
 from pydantic import ValidationError
 
 from common.errors import DataValidationError
-from optimizer.core.models import PortfolioMetrics, Proposal
+from optimizer.core.models import Proposal
 from reader.core.models import BacktestReport, MonitorSnapshot
 from reader.core.repository import GoldRepository, MonitorHistory, StateReader
 
@@ -38,8 +38,18 @@ class ReaderService:
                 f"stored proposal is invalid: {_document_key(run_date)}"
             ) from exc
 
-    def get_metrics(self, run_date: date | None = None) -> dict[str, PortfolioMetrics]:
-        return self.get_proposal(run_date).metrics
+    def get_metrics(self, run_date: date | None = None) -> dict[str, object]:
+        """Return the metrics document with its proposal attribution (N-07).
+
+        BI consumers need the run date and the proposal id to build time
+        series, so the response carries them next to the metrics map.
+        """
+        proposal = self.get_proposal(run_date)
+        return {
+            "proposal_id": proposal.proposal_id,
+            "run_date": proposal.run_date.isoformat(),
+            "metrics": proposal.metrics,
+        }
 
     def get_monitor(self) -> MonitorSnapshot:
         proposal = self.get_proposal(None)

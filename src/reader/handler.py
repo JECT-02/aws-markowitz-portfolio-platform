@@ -15,7 +15,7 @@ from common.env import load_env_file
 from common.errors import ConfigurationError, DataValidationError, NotFoundError, StorageError
 from common.logging import configure_logging, get_logger
 from common.storage import S3Storage
-from optimizer.core.models import PortfolioMetrics, Proposal
+from optimizer.core.models import Proposal
 from reader.core.models import BacktestReport, MonitorSnapshot
 from reader.core.repository import (
     DynamoCurrentState,
@@ -45,7 +45,7 @@ class ReaderRunner(Protocol):
 
     def get_proposal(self, run_date: date | None = None) -> Proposal: ...
 
-    def get_metrics(self, run_date: date | None = None) -> dict[str, PortfolioMetrics]: ...
+    def get_metrics(self, run_date: date | None = None) -> dict[str, object]: ...
 
     def get_monitor(self) -> MonitorSnapshot: ...
 
@@ -73,7 +73,7 @@ def run_reader(event: Mapping[str, Any], deps: ReaderDependencies) -> dict[str, 
         if route == _PROPOSAL_ROUTE:
             payload: Any = deps.service.get_proposal(run_date)
         elif route == _METRICS_ROUTE:
-            payload = {"metrics": deps.service.get_metrics(run_date)}
+            payload = deps.service.get_metrics(run_date)
         elif route == _MONITOR_ROUTE:
             payload = deps.service.get_monitor()
         elif route == _BACKTEST_ROUTE:

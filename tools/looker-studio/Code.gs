@@ -84,7 +84,9 @@ var TABLES = {
       fields.newDimension().setId("proposal_id").setName("Proposal").setType(types.TEXT);
       fields.newDimension().setId("ticker").setName("Ticker").setType(types.TEXT);
       fields.newDimension().setId("monitor_updated_at").setName("Monitor updated at").setType(types.TEXT);
-      fields.newMetric().setId("proposed_weight").setName("Proposed weight").setType(types.NUMBER).setAggregation(aggregations.MAX);
+      // document.weights holds the reconciled ACTUAL portfolio (STATE/CURRENT
+      // or the proposal's actual_weights), never the proposed w_star (N-08).
+      fields.newMetric().setId("actual_weight").setName("Actual weight").setType(types.NUMBER).setAggregation(aggregations.MAX);
       fields.newMetric().setId("live_weight").setName("Live weight").setType(types.NUMBER).setAggregation(aggregations.MAX);
       fields.newMetric().setId("drift_l1").setName("Proposal drift L1").setType(types.NUMBER).setAggregation(aggregations.MAX);
       fields.newMetric().setId("live_drift_l1").setName("Live drift L1").setType(types.NUMBER).setAggregation(aggregations.MAX);
@@ -94,7 +96,7 @@ var TABLES = {
     rows: function (document) {
       var rows = [];
       var live = document.live_weights || document.weights || {};
-      var proposed = document.weights || {};
+      var actual = document.weights || {};
       var tickers = {};
       Object.keys(proposed).forEach(function (ticker) {
         tickers[ticker] = true;
@@ -109,7 +111,7 @@ var TABLES = {
             document.proposal_id,
             ticker,
             document.monitor_updated_at || "",
-            proposed[ticker] === undefined ? null : proposed[ticker],
+            actual[ticker] === undefined ? null : actual[ticker],
             live[ticker] === undefined ? null : live[ticker],
             document.drift_l1,
             document.live_drift_l1 === undefined ? null : document.live_drift_l1,
