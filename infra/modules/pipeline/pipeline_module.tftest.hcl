@@ -182,6 +182,28 @@ run "strategy_must_not_have_empty_values" {
   expect_failures = [var.strategy]
 }
 
+run "lambda_roles_can_write_their_own_dlq" {
+  command = plan
+
+  # N-02: an asynchronous invoke failure must land in the stage DLQ, so each
+  # role needs SendMessage on its own queue.
+  assert {
+    condition = alltrue(flatten([
+      for stage in ["ingest", "clean", "optimizer", "monitor"] : [
+        contains(
+          flatten([for st in local.permission_policies[stage].Statement : st.Action]),
+          "sqs:SendMessage",
+        ),
+        contains(
+          flatten([for st in local.permission_policies[stage].Statement : st.Resource]),
+          var.dlq_arns[stage],
+        ),
+      ]
+    ]))
+    error_message = "Every pipeline lambda role must be able to send to its own DLQ."
+  }
+}
+
 run "scheduler_uses_ny_timezone_cron" {
   command = plan
 

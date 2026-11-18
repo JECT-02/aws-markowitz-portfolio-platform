@@ -282,6 +282,14 @@ locals {
             "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${var.alpaca_secret_key_parameter}",
           ]
         },
+        {
+          # Asynchronous invoke failures must land in the stage DLQ; without
+          # SendMessage the failed invocation is dropped silently (N-02).
+          Sid      = "WriteOwnDeadLetterQueue"
+          Effect   = "Allow"
+          Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
+          Resource = [var.dlq_arns["ingest"]]
+        },
       ]
     }
     clean = {
@@ -303,6 +311,12 @@ locals {
             var.silver_bucket_arn,
             "${var.silver_bucket_arn}/*",
           ]
+        },
+        {
+          Sid      = "WriteOwnDeadLetterQueue"
+          Effect   = "Allow"
+          Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
+          Resource = [var.dlq_arns["clean"]]
         },
       ]
     }
@@ -347,6 +361,12 @@ locals {
           ]
           Resource = [var.state_table_arn]
         },
+        {
+          Sid      = "WriteOwnDeadLetterQueue"
+          Effect   = "Allow"
+          Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
+          Resource = [var.dlq_arns["optimizer"]]
+        },
       ]
     }
     monitor = {
@@ -376,6 +396,12 @@ locals {
             "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${var.alpaca_api_key_parameter}",
             "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${var.alpaca_secret_key_parameter}",
           ]
+        },
+        {
+          Sid      = "WriteOwnDeadLetterQueue"
+          Effect   = "Allow"
+          Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
+          Resource = [var.dlq_arns["monitor"]]
         },
       ]
     }
