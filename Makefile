@@ -1,6 +1,6 @@
 ENV ?= dev
 
-.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer build-monitor build-backtest
+.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan freeze run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer build-monitor build-backtest
 
 install:
 	uv sync
@@ -70,25 +70,30 @@ run-optimizer-local:
 run-backtest-local:
 	uv run python -m backtest.local
 
-build-ingest:
+# L-04: the images install a fully pinned universe generated from uv.lock
+# (direct + transitive), so two builds of the same revision are identical.
+freeze:
+	uv export --frozen --no-hashes --no-dev --no-emit-project -o build/requirements.lock.txt
+
+build-ingest: freeze
 	docker build -f src/ingest/Dockerfile -t portfolio-markowitz-ingest --platform linux/amd64 .
 
-build-clean:
+build-clean: freeze
 	docker build -f src/clean/Dockerfile -t portfolio-markowitz-clean --platform linux/amd64 .
 
-build-optimizer:
+build-optimizer: freeze
 	docker build -f src/optimizer/Dockerfile -t portfolio-markowitz-optimizer --platform linux/amd64 .
 
-build-executor:
+build-executor: freeze
 	docker build -f src/executor/Dockerfile -t portfolio-markowitz-executor --platform linux/amd64 .
 
 build-images: build-ingest build-clean build-optimizer build-reader build-executor build-monitor build-backtest
 
-build-backtest:
+build-backtest: freeze
 	docker build -f src/backtest/Dockerfile -t portfolio-markowitz-backtest --platform linux/amd64 .
 
-build-monitor:
+build-monitor: freeze
 	docker build -f src/monitor/Dockerfile -t portfolio-markowitz-monitor --platform linux/amd64 .
 
-build-reader:
+build-reader: freeze
 	docker build -f src/reader/Dockerfile -t portfolio-markowitz-reader --platform linux/amd64 .
