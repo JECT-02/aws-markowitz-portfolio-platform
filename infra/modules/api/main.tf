@@ -36,6 +36,12 @@ variable "env" {
   description = "Deployment environment (dev or prod)."
 }
 
+variable "cognito_domain_prefix" {
+  type        = string
+  description = "Global Cognito hosted UI domain prefix (N-25); make it unique if the default is taken."
+  default     = "portfolio-markowitz"
+}
+
 variable "image_tag" {
   type        = string
   description = "Pinned ECR tag or digest for the Reader image. NEVER 'latest' (AGENTS.md section 11.2)."
@@ -137,7 +143,10 @@ resource "aws_cognito_user_pool" "users" {
 }
 
 resource "aws_cognito_user_pool_domain" "spa" {
-  domain       = "${var.project}-${var.env}"
+  # The Cognito domain is GLOBAL across all AWS accounts: a generic name
+  # collides and fails the apply (N-25). The prefix is configurable with a
+  # project-specific default; add a unique suffix in the tfvars if needed.
+  domain       = var.cognito_domain_prefix
   user_pool_id = aws_cognito_user_pool.users.id
 }
 
