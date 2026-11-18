@@ -5,7 +5,7 @@ from datetime import date
 from pydantic import ValidationError
 
 from common.errors import DataValidationError
-from optimizer.core.models import PortfolioMetrics, Proposal
+from optimizer.core.models import Proposal
 from reader.core.models import BacktestReport, MonitorSnapshot
 from reader.core.repository import GoldRepository, MonitorHistory, StateReader
 
