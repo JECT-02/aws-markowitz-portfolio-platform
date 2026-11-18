@@ -51,9 +51,9 @@ def test_writes_one_item_per_timestamp() -> None:
     assert len(items) == 1
     item = items[0]
     assert item["sk"]["S"] == NOW.isoformat()
-    assert item["weights_live"]["M"]["SPY"]["N"] == "0.5"
-    assert item["weights_live"]["M"]["TLT"]["N"] == "0.5"
-    assert item["drift_l1"]["N"] == "0.1"
+    assert float(item["weights_live"]["M"]["SPY"]["N"]) == pytest.approx(0.5)
+    assert float(item["weights_live"]["M"]["TLT"]["N"]) == pytest.approx(0.5)
+    assert float(item["drift_l1"]["N"]) == pytest.approx(0.1)
     assert item["rebalance_required"]["BOOL"] is True
     assert item["proposal_id"]["S"] == "prop-1"
     assert item["run_date"]["S"] == "2026-11-14"

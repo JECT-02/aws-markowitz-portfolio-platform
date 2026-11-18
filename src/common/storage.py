@@ -48,6 +48,10 @@ class S3Storage:
             if _is_not_found(exc):
                 return False
             raise StorageError(f"failed to check object {bucket}/{key}") from exc
+        except BotoCoreError as exc:
+            # A network failure is not the same as a missing object: fail
+            # loudly instead of reporting "absent" and skipping a write (L-10).
+            raise StorageError(f"failed to check object {bucket}/{key}") from exc
         return True
 
     def write_json_if_absent(self, bucket: str, key: str, payload: dict[str, Any]) -> bool:
@@ -58,7 +62,7 @@ class S3Storage:
         PUT commits and the loser gets ``PreconditionFailed`` and returns
         False without overwriting the committed payload.
         """
-        body = _json_body(payload)
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         try:
             self._client.put_object(
                 Bucket=bucket,
@@ -76,7 +80,10 @@ class S3Storage:
         return True
 
     def write_json(self, bucket: str, key: str, payload: dict[str, Any]) -> None:
-        body = _json_body(payload)
+        # No default=str (L-06): payloads are Pydantic JSON-mode dumps, so an
+        # unexpected object must fail here with a clear error instead of
+        # silently becoming a string inside a numeric field.
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self._put(bucket, key, body, "application/json")
 
     def read_json(self, bucket: str, key: str) -> dict[str, Any]:
@@ -127,7 +134,3 @@ class S3Storage:
 def _is_not_found(exc: ClientError) -> bool:
     error = exc.response.get("Error", {})
     return error.get("Code") in _NOT_FOUND_CODES
-
-
-def _json_body(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
