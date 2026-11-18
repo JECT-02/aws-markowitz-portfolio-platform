@@ -39,7 +39,7 @@ class BacktestData(Protocol):
 
 
 class BacktestValidation(Protocol):
-    """Runs the nested temporal validation."""
+    """Runs the temporal holdout validation (single level, see N-10)."""
 
     def run(self, matrix: ReturnsMatrix) -> ValidationResult: ...
 

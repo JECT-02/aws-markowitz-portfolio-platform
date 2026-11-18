@@ -64,14 +64,22 @@ class ValidationResult:
 
 
 class TemporalValidation:
-    """Selects hyperparameters on validation and reports on held-out test data."""
+    """Selects hyperparameters on a temporal holdout and reports on held-out data.
+
+    Explicit limitation (N-10): the selection is a single-level temporal
+    holdout with expanding-window folds, not a nested (two-level) scheme —
+    the grid is evaluated once over one validation segment and the best
+    candidate is then measured on untouched test data. A fully nested loop
+    was descarted by the compute budget of the weekly Lambda
+    (MAX_GRID_EVALUATIONS); the name and docs must not overstate it.
+    """
 
     def __init__(self, universe: UniverseConfig, strategy: StrategyConfig) -> None:
         self._universe = universe
         self._strategy = strategy
 
     def run(self, matrix: ReturnsMatrix) -> ValidationResult:
-        """Evaluate the configured grid with nested temporal folds."""
+        """Evaluate the configured grid over the temporal validation segment."""
         started = time.perf_counter()
         train_end, validation_end = _split_indices(
             matrix,
