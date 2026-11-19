@@ -242,14 +242,15 @@ class AlpacaPaperBroker:
             order = self._trading.get_order_by_client_id(client_order_id)
         except APIError as exc:
             if _is_not_found(exc):
-                # 404: the order is not (yet) visible by client_order_id.
-                # Report UNKNOWN so the bounded polling continues and a
-                # timeout never escalates to a blind resend (AGENTS.md 6.15).
+                # 404: the broker holds no order with this client id. Report
+                # NOT_FOUND (not UNKNOWN) so a retry may safely resubmit,
+                # while a live order still keeps polling until the
+                # reconciliation reads the real positions (AGENTS.md 6.15).
                 logger.warning(
-                    "order not found yet by client_order_id",
+                    "order not found by client_order_id",
                     extra={"client_order_id": client_order_id},
                 )
-                return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+                return OrderSnapshot(status=OrderStatus.NOT_FOUND, filled_quantity=0.0)
             raise BrokerError(f"alpaca order lookup failed for {client_order_id}") from exc
         return _snapshot(order, client_order_id)
 

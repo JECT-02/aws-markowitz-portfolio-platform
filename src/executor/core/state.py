@@ -34,7 +34,11 @@ class ExecutionState(Protocol):
 
     def read_proposal(self, proposal_id: str) -> ProposalRecord | None: ...
 
-    def transition_to_executing(self, proposal_id: str) -> None: ...
+    def transition_to_executing(
+        self,
+        proposal_id: str,
+        allow_executing: bool = False,
+    ) -> None: ...
 
     def write_execution_result(
         self,
@@ -55,6 +59,7 @@ class ExecutionState(Protocol):
         idempotency_key: str,
         proposal_id: str,
         now: datetime,
+        staleness_seconds: int | None = None,
     ) -> IdempotencyClaim: ...
 
     def write_idempotency_result(
@@ -90,14 +95,17 @@ class DynamoExecutionState:
             return None
         return _parse_proposal(proposal_id, item)
 
-    def transition_to_executing(self, proposal_id: str) -> None:
-        # An UNRESOLVED proposal may be resumed; anything else must be PENDING.
+    def transition_to_executing(self, proposal_id: str, allow_executing: bool = False) -> None:
+        # An UNRESOLVED proposal may be resumed; anything else must be
+        # PENDING. Only a retry that took over a stale EXECUTING claim (its
+        # original owner is provably dead) may re-enter from EXECUTING.
+        sources = [":pending", ":unresolved"] + ([":executing"] if allow_executing else [])
         try:
             self._client.update_item(
                 TableName=self._table_name,
                 Key={"pk": {"S": PROPOSAL_PARTITION}, "sk": {"S": proposal_id}},
                 UpdateExpression="SET #status = :executing",
-                ConditionExpression="#status IN (:pending, :unresolved)",
+                ConditionExpression=f"#status IN ({', '.join(sources)})",
                 ExpressionAttributeNames={"#status": "status"},
                 ExpressionAttributeValues={
                     ":pending": {"S": "PENDING"},
@@ -195,11 +203,16 @@ class DynamoExecutionState:
         idempotency_key: str,
         proposal_id: str,
         now: datetime,
+        staleness_seconds: int | None = None,
     ) -> IdempotencyClaim:
         """Claim the idempotency key or return the previously recorded claim.
 
         ``now`` comes from the injected clock so TTLs are deterministic in
-        tests (AGENTS.md section 10).
+        tests (AGENTS.md section 10). With ``staleness_seconds`` set, a claim
+        left in EXECUTING by an invocation that is older than the bound may be
+        taken over: its owner provably ended (bounded by the Lambda runtime)
+        without recording a result, so the retry resumes it and verifies every
+        planned order in the broker before sending anything.
         """
         created = now.astimezone(UTC)
         expires = created + IDEMPOTENCY_TTL
@@ -211,8 +224,10 @@ class DynamoExecutionState:
                     "sk": {"S": idempotency_key},
                     "proposal_id": {"S": proposal_id},
                     "status": {"S": "EXECUTING"},
-                    "created_at": {"S": created.isoformat()},
-                    "expires_at": {"S": expires.isoformat()},
+                    # Fixed microseconds so the takeover cutoff compares
+                    # chronologically as a plain string (AGENTS.md section 10).
+                    "created_at": {"S": created.isoformat(timespec="microseconds")},
+                    "expires_at": {"S": expires.isoformat(timespec="microseconds")},
                     "ttl": {"N": str(int(expires.timestamp()))},
                 },
                 ConditionExpression="attribute_not_exists(pk)",
@@ -231,6 +246,20 @@ class DynamoExecutionState:
                         expires,
                         previous,
                     )
+                if (
+                    staleness_seconds is not None
+                    and previous.status == "EXECUTING"
+                    and previous.proposal_id == proposal_id
+                    and self._claim_is_stale(previous, now, staleness_seconds)
+                ):
+                    return self._reclaim_stale_executing(
+                        idempotency_key,
+                        proposal_id,
+                        created,
+                        expires,
+                        now,
+                        staleness_seconds,
+                    )
                 return previous
             raise StorageError("failed to claim idempotency key") from exc
         except BotoCoreError as exc:
@@ -242,6 +271,23 @@ class DynamoExecutionState:
             result=None,
             fresh=True,
         )
+
+    @staticmethod
+    def _claim_is_stale(
+        previous: IdempotencyClaim,
+        now: datetime,
+        staleness_seconds: int,
+    ) -> bool:
+        """Compare the claim's created_at with the staleness cutoff chronologically.
+
+        Precondition: the stored created_at is parsed into a timezone-aware
+        datetime; the conditional update performs the same comparison on the
+        stored ISO-8601 strings with fixed microseconds.
+        """
+        if previous.created_at is None:
+            return False
+        cutoff = now.astimezone(UTC) - timedelta(seconds=staleness_seconds)
+        return previous.created_at <= cutoff
 
     def write_idempotency_result(
         self,
@@ -273,6 +319,62 @@ class DynamoExecutionState:
             raise StorageError("failed to write idempotency result") from exc
         except BotoCoreError as exc:
             raise StorageError("failed to write idempotency result") from exc
+
+    def _reclaim_stale_executing(
+        self,
+        idempotency_key: str,
+        proposal_id: str,
+        created: datetime,
+        expires: datetime,
+        now: datetime,
+        staleness_seconds: int,
+    ) -> IdempotencyClaim:
+        """Take over an EXECUTING claim whose owner is provably dead, atomically.
+
+        The conditional update requires the claim to still be EXECUTING and
+        older than the staleness cutoff, so two concurrent retries cannot both
+        take over, and a still-running original owner is excluded by the bound.
+        The winner gets a fresh claim with no recorded result; the loser gets
+        the in-flight claim and raises an IdempotencyConflict upstream.
+        """
+        cutoff = (now.astimezone(UTC) - timedelta(seconds=staleness_seconds)).isoformat(
+            timespec="microseconds"
+        )
+        try:
+            self._client.update_item(
+                TableName=self._table_name,
+                Key={"pk": {"S": IDEMPOTENCY_PARTITION}, "sk": {"S": idempotency_key}},
+                UpdateExpression=(
+                    "SET created_at = :created_at, expires_at = :expires_at, #ttl = :ttl"
+                ),
+                ConditionExpression="#status = :executing AND created_at <= :cutoff",
+                ExpressionAttributeNames={"#status": "status", "#ttl": "ttl"},
+                ExpressionAttributeValues={
+                    ":executing": {"S": "EXECUTING"},
+                    ":cutoff": {"S": cutoff},
+                    ":created_at": {"S": created.isoformat(timespec="microseconds")},
+                    ":expires_at": {"S": expires.isoformat(timespec="microseconds")},
+                    ":ttl": {"N": str(int(expires.timestamp()))},
+                },
+            )
+        except ClientError as exc:
+            if _is_conditional_failure(exc):
+                existing = self._get_item(IDEMPOTENCY_PARTITION, idempotency_key)
+                if existing is None:
+                    raise StorageError("idempotency claim disappeared") from exc
+                return _parse_claim(idempotency_key, existing)
+            raise StorageError("failed to reclaim a stale idempotency key") from exc
+        except BotoCoreError as exc:
+            raise StorageError("failed to reclaim a stale idempotency key") from exc
+        return IdempotencyClaim(
+            idempotency_key=idempotency_key,
+            proposal_id=proposal_id,
+            status="EXECUTING",
+            created_at=created,
+            result=None,
+            fresh=True,
+            stale_takeover=True,
+        )
 
     def _reclaim_unresolved(
         self,
@@ -375,6 +477,13 @@ def _parse_number_map(raw: Any, description: str) -> dict[str, float]:
 def _parse_claim(idempotency_key: str, item: dict[str, Any]) -> IdempotencyClaim:
     proposal_id = str(item.get("proposal_id", {}).get("S", ""))
     status = str(item.get("status", {}).get("S", "EXECUTING"))
+    created_at: datetime | None = None
+    created_raw = item.get("created_at", {}).get("S")
+    if created_raw:
+        try:
+            created_at = datetime.fromisoformat(created_raw)
+        except ValueError as exc:
+            raise StorageError("stored claim created_at is invalid") from exc
     result: ExecutionResult | None = None
     result_raw = item.get("result", {}).get("S")
     if result_raw:
@@ -386,6 +495,7 @@ def _parse_claim(idempotency_key: str, item: dict[str, Any]) -> IdempotencyClaim
         idempotency_key=idempotency_key,
         proposal_id=proposal_id,
         status=status,
+        created_at=created_at,
         result=result,
         fresh=False,
     )

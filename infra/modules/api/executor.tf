@@ -48,6 +48,18 @@ variable "executor_execution_timeout_seconds" {
   }
 }
 
+variable "executor_claim_staleness_seconds" {
+  type        = number
+  description = "Age at which a stale EXECUTING idempotency claim may be taken over by a retry; must exceed the 60s Lambda timeout so a takeover never races a live invocation."
+  default     = 90
+  validation {
+    # The Lambda timeout is 60 (aws_lambda_function.executor); a plan-time
+    # tftest pins the env var against that resource attribute as well.
+    condition     = var.executor_claim_staleness_seconds > 60
+    error_message = "The claim staleness bound must exceed the 60s Lambda timeout."
+  }
+}
+
 variable "executor_allowed_groups" {
   type        = string
   description = "Comma-separated Cognito groups allowed to approve a rebalance (N-16)."
@@ -223,6 +235,7 @@ resource "aws_lambda_function" "executor" {
       EXECUTOR_MIN_ORDER_NOTIONAL        = tostring(var.executor_min_order_notional)
       EXECUTOR_MAX_PRICE_DRIFT_PCT       = tostring(var.executor_max_price_drift_pct)
       EXECUTOR_EXECUTION_TIMEOUT_SECONDS = tostring(var.executor_execution_timeout_seconds)
+      EXECUTOR_CLAIM_STALENESS_SECONDS   = tostring(var.executor_claim_staleness_seconds)
       EXECUTOR_ALLOWED_GROUPS            = var.executor_allowed_groups
     }
   }

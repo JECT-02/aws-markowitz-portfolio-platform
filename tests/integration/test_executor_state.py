@@ -474,3 +474,69 @@ class TestProposalTransitions:
 
         with pytest.raises(StorageError, match="not PENDING"):
             state.transition_to_executing(PROPOSAL_ID)
+
+
+class TestStaleClaimTakeover:
+    def test_a_stale_executing_claim_is_taken_over_exactly_once(self, state_table) -> None:
+        state = _state()
+        state.claim_idempotency(KEY, PROPOSAL_ID, NOW)
+
+        takeover = state.claim_idempotency(
+            KEY,
+            PROPOSAL_ID,
+            NOW + timedelta(seconds=120),
+            staleness_seconds=90,
+        )
+        # A concurrent retry loses: the takeover refreshed created_at, so the
+        # claim is no longer older than the cutoff.
+        again = state.claim_idempotency(
+            KEY,
+            PROPOSAL_ID,
+            NOW + timedelta(seconds=121),
+            staleness_seconds=90,
+        )
+
+        assert takeover.fresh is True
+        assert takeover.stale_takeover is True
+        assert takeover.result is None
+        assert again.fresh is False
+
+    def test_a_fresh_executing_claim_is_never_taken_over(self, state_table) -> None:
+        state = _state()
+        state.claim_idempotency(KEY, PROPOSAL_ID, NOW)
+
+        repeat = state.claim_idempotency(
+            KEY,
+            PROPOSAL_ID,
+            NOW + timedelta(seconds=60),
+            staleness_seconds=90,
+        )
+
+        assert repeat.fresh is False
+        assert repeat.stale_takeover is False
+
+    def test_a_stale_claim_of_another_proposal_is_not_taken_over(self, state_table) -> None:
+        state = _state()
+        state.claim_idempotency(KEY, PROPOSAL_ID, NOW)
+
+        other = state.claim_idempotency(
+            KEY,
+            "another-proposal",
+            NOW + timedelta(seconds=120),
+            staleness_seconds=90,
+        )
+
+        assert other.fresh is False
+        assert other.stale_takeover is False
+        assert other.proposal_id == PROPOSAL_ID
+
+    def test_an_executing_proposal_can_only_be_reentered_by_a_stale_takeover(
+        self, state_table
+    ) -> None:
+        _put_proposal(state_table)
+        state = _state()
+        state.transition_to_executing(PROPOSAL_ID)
+
+        with pytest.raises(StorageError, match="not PENDING"):
+            state.transition_to_executing(PROPOSAL_ID)
+        state.transition_to_executing(PROPOSAL_ID, allow_executing=True)

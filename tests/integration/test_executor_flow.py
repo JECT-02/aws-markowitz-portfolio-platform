@@ -618,3 +618,66 @@ class TestUnresolvedAttempts:
             Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
         )["Item"]
         assert proposal_item["status"]["S"] == "EXECUTED"
+
+
+class _CrashOnSecondSubmit(SimulatedBroker):
+    """Simulates a Lambda dying mid-flight: raises outside the Portfolio hierarchy."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._submits = 0
+
+    def submit_order(
+        self,
+        client_order_id: str,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+    ) -> OrderSnapshot:
+        self._submits += 1
+        if self._submits == 2:
+            raise RuntimeError("simulated crash after the first order")
+        return super().submit_order(client_order_id, symbol, side, quantity)
+
+
+class TestStaleClaimRecovery:
+    def test_a_crashed_attempt_is_resumed_after_the_staleness_bound(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        broker = _CrashOnSecondSubmit(**_broker_kwargs())
+        with pytest.raises(RuntimeError, match="simulated crash"):
+            _service(broker).execute(PROPOSAL_ID, KEY)
+
+        # The crash left the claim EXECUTING with no recorded result.
+        claim_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "IDEMPOTENCY"}, "sk": {"S": KEY}},
+        )["Item"]
+        assert claim_item["status"]["S"] == "EXECUTING"
+        proposal_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
+        )["Item"]
+        assert proposal_item["status"]["S"] == "EXECUTING"
+
+        # A retry before the staleness bound still gets a conflict...
+        with pytest.raises(IdempotencyConflict):
+            _service(broker, clock=FixedClock(NOW + timedelta(seconds=60))).execute(
+                PROPOSAL_ID, KEY
+            )
+
+        # ...and after the bound the retry takes over: it verifies every
+        # order in the broker, resubmits only the missing ones and finishes.
+        result = _service(broker, clock=FixedClock(NOW + timedelta(seconds=120))).execute(
+            PROPOSAL_ID, KEY
+        )
+
+        assert result.status is ProposalStatus.EXECUTED
+        submitted_ids = [order_id for order_id, *_ in broker.submitted]
+        assert len(submitted_ids) == len(set(submitted_ids))
+        assert len(submitted_ids) == 5
+        proposal_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
+        )["Item"]
+        assert proposal_item["status"]["S"] == "EXECUTED"

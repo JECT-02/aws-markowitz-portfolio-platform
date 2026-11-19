@@ -237,6 +237,17 @@ run "executor_reads_only_the_current_alpaca_parameters" {
   }
 }
 
+run "stale_claim_takeover_never_races_a_live_invocation" {
+  command = plan
+
+  # The staleness bound must exceed the Lambda timeout, so a retry only
+  # takes over a claim whose original owner has certainly ended.
+  assert {
+    condition     = tonumber(aws_lambda_function.executor.environment[0].variables.EXECUTOR_CLAIM_STALENESS_SECONDS) > aws_lambda_function.executor.timeout
+    error_message = "EXECUTOR_CLAIM_STALENESS_SECONDS must exceed the executor Lambda timeout."
+  }
+}
+
 run "executor_paper_mode_is_forced" {
   command = plan
 

@@ -77,7 +77,12 @@ class RebalanceService:
 
     def execute(self, proposal_id: str, idempotency_key: str) -> ExecutionResult:
         """Run the full rebalance flow for one proposal and idempotency key."""
-        claim = self._state.claim_idempotency(idempotency_key, proposal_id, self._clock.now())
+        claim = self._state.claim_idempotency(
+            idempotency_key,
+            proposal_id,
+            self._clock.now(),
+            staleness_seconds=self._config.claim_staleness_seconds,
+        )
         resuming = claim.result is not None and claim.result.status is ProposalStatus.UNRESOLVED
         if claim.result is not None and not resuming:
             logger.info(
@@ -92,15 +97,18 @@ class RebalanceService:
         # A retry of an UNRESOLVED attempt resumes it: orders the earlier
         # attempt already sent are polled, never resubmitted (AGENTS.md 6.15).
         prior_orders = list(claim.result.orders) if resuming and claim.result is not None else []
+        # A stale takeover means a dead invocation left orders in flight with
+        # no recorded result: the broker decides, not the plan.
+        verify_broker = claim.stale_takeover
         transitioned = False
         try:
             record = self._load_proposal(proposal_id)
             self._require_not_expired(record)
-            self._require_pending(record)
+            self._require_pending(record, allow_executing=verify_broker)
             self._require_market_open(proposal_id)
             current_prices = self._current_prices(record)
             self._require_stable_prices(record, current_prices)
-            self._state.transition_to_executing(proposal_id)
+            self._state.transition_to_executing(proposal_id, allow_executing=verify_broker)
             transitioned = True
             plan = plan_orders(
                 proposal_id,
@@ -110,7 +118,7 @@ class RebalanceService:
                 current_prices,
                 self._config.min_order_notional,
             )
-            result = self._submit(plan, prior_orders)
+            result = self._submit(plan, prior_orders, verify_broker)
         except IdempotencyConflict:
             # the in-flight owner of the claim records its own result
             raise
@@ -146,10 +154,13 @@ class RebalanceService:
             raise NotFoundError(f"proposal {proposal_id} not found")
         return record
 
-    def _require_pending(self, record: ProposalRecord) -> None:
-        if record.status not in (ProposalStatus.PENDING.value, ProposalStatus.UNRESOLVED.value):
+    def _require_pending(self, record: ProposalRecord, allow_executing: bool = False) -> None:
+        allowed = [ProposalStatus.PENDING.value, ProposalStatus.UNRESOLVED.value]
+        if allow_executing:
+            allowed.append(ProposalStatus.EXECUTING.value)
+        if record.status not in allowed:
             raise ProposalNotPending(
-                f"proposal {record.proposal_id} is {record.status}, expected PENDING or UNRESOLVED"
+                f"proposal {record.proposal_id} is {record.status}, expected {' or '.join(allowed)}"
             )
 
     def _require_not_expired(self, record: ProposalRecord) -> None:
@@ -193,21 +204,53 @@ class RebalanceService:
             prices[symbol] = self._broker.get_price(symbol)
         return prices
 
-    def _submit(self, plan: OrderPlan, prior_orders: list[FilledOrder]) -> ExecutionResult:
-        """Send the plan's orders, or resume an earlier UNRESOLVED attempt.
+    def _submit(
+        self,
+        plan: OrderPlan,
+        prior_orders: list[FilledOrder],
+        verify_broker: bool = False,
+    ) -> ExecutionResult:
+        """Send the plan's orders, or resume an earlier unfinished attempt.
 
         Preconditions: ``prior_orders`` are the orders an earlier attempt with
         the same idempotency key already reported (empty for a first attempt).
+        With ``verify_broker`` (stale takeover) every planned order is looked
+        up in the broker first: NOT_FOUND means it was never sent and may be
+        submitted; any other state is polled or reused, never resubmitted.
         Postconditions: no order id is submitted twice; an order still open at
         the deadline, or never sent before it, makes the result UNRESOLVED
         instead of a final FAILED or EXECUTED.
         """
         deadline = self._clock.now() + timedelta(seconds=self._config.execution_timeout_seconds)
-        known = {order.client_order_id: order for order in prior_orders}
-        planned_ids = {order.client_order_id for order in plan.sales + plan.buys}
+        planned = plan.sales + plan.buys
+        planned_ids = {order.client_order_id for order in planned}
+        # NOT_FOUND means the broker holds no order with that id: it proves
+        # the order does not exist, so it may be (re)submitted safely instead
+        # of being polled forever.
+        known = {
+            order.client_order_id: order
+            for order in prior_orders
+            if order.status is not OrderStatus.NOT_FOUND
+        }
         fills: dict[str, FilledOrder] = {}
         unfinished: list[str] = []
-        for order in plan.sales + plan.buys:
+        if verify_broker:
+            for order in planned:
+                if order.client_order_id in known:
+                    continue
+                snapshot = self._broker.get_order_status(order.client_order_id)
+                if snapshot.status is not OrderStatus.NOT_FOUND:
+                    # The broker already knows this order: poll or reuse it,
+                    # never send a second one (AGENTS.md section 6.15).
+                    known[order.client_order_id] = FilledOrder(
+                        client_order_id=order.client_order_id,
+                        symbol=order.symbol,
+                        side=order.side,
+                        requested_quantity=order.quantity,
+                        filled_quantity=snapshot.filled_quantity,
+                        status=snapshot.status,
+                    )
+        for order in planned:
             prior = known.get(order.client_order_id)
             if prior is not None:
                 start = self._resume_snapshot(prior)
@@ -246,7 +289,10 @@ class RebalanceService:
         # (already filled, or the target was reached): keep them in the result
         # and poll the ones still open.
         for prior in prior_orders:
-            if prior.client_order_id in planned_ids:
+            if prior.client_order_id in planned_ids or prior.status is OrderStatus.NOT_FOUND:
+                # NOT_FOUND priors were resubmitted through the plan when the
+                # symbol still needs them; when it does not, the order does
+                # not exist in the broker and there is nothing to track.
                 continue
             snapshot = self._await_fill(
                 prior.client_order_id,
@@ -261,7 +307,9 @@ class RebalanceService:
             )
         ordered = list(fills.values())
         open_orders = [
-            fill.client_order_id for fill in ordered if fill.status is OrderStatus.UNKNOWN
+            fill.client_order_id
+            for fill in ordered
+            if fill.status in (OrderStatus.UNKNOWN, OrderStatus.NOT_FOUND)
         ]
         unfinished.extend(f"{client_order_id} (open)" for client_order_id in open_orders)
         # Re-price after the fills: the reconciled weights must reflect the
