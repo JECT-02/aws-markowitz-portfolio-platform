@@ -10,6 +10,7 @@ COPY build/requirements.lock.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/common ./common
+COPY src/ingest ./ingest
 COPY src/clean ./clean
 COPY config ./config
 

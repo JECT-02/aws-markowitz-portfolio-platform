@@ -38,6 +38,25 @@ jobs:
       - name: Coverage
         run: uv run pytest --cov=src --cov-report=term --cov-fail-under=80
 
+  # Builds every Lambda image without pushing it. Each Dockerfile runs an
+  # import check of its own handler in a RUN step, so a successful build proves
+  # the handler's imports are packaged (mistakes.md QA-001 was invisible to CI).
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [ingest, clean, optimizer, monitor, reader, executor, backtest]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          python-version: "3.12"
+      - name: Export the pinned requirements (same as make freeze)
+        run: uv export --frozen --no-hashes --no-dev --no-emit-project -o build/requirements.lock.txt
+      - name: Build the image and run its import check
+        run: docker build -f "src/${{ matrix.module }}/Dockerfile" -t "portfolio-markowitz-${{ matrix.module }}" --platform linux/amd64 .
+
   terraform:
     runs-on: ubuntu-latest
     steps:
