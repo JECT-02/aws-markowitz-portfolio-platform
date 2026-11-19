@@ -165,6 +165,11 @@ def test_unsupported_source_is_rejected() -> None:
         run_optimizer({"source": "nasdaq"}, _deps(_Service()))
 
 
+def test_mixed_is_rejected_as_an_event_source() -> None:
+    with pytest.raises(ConfigurationError, match="mixed"):
+        run_optimizer({"source": "mixed"}, _deps(_Service()))
+
+
 def test_state_weights_are_used_when_event_has_none() -> None:
     state = _State({"SPY": 0.6, "QQQ": 0.4})
     service = _Service()

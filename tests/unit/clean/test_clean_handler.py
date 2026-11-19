@@ -98,6 +98,14 @@ def test_invalid_source_is_rejected(make_strategy_config: Callable[..., Strategy
         run_clean({"source": "nasdaq"}, _deps(service, make_strategy_config()))
 
 
+def test_mixed_is_rejected_as_an_event_source(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
+    service = _RecordingService(_result())
+    with pytest.raises(ConfigurationError, match="mixed"):
+        run_clean({"source": "mixed"}, _deps(service, make_strategy_config()))
+
+
 def test_accepted_symbols_restrict_cleaning(
     make_strategy_config: Callable[..., StrategyConfig],
 ) -> None:

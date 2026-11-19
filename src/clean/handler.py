@@ -117,6 +117,9 @@ def _resolve_source(event: Mapping[str, object]) -> DataSource:
     if not isinstance(value, str):
         raise ConfigurationError("source must be a string")
     try:
-        return DataSource(value)
+        source = DataSource(value)
     except ValueError as exc:
         raise ConfigurationError(f"unsupported source: {value}") from exc
+    if source is DataSource.MIXED:
+        raise ConfigurationError("source 'mixed' is an artifact label, not an event source")
+    return source
