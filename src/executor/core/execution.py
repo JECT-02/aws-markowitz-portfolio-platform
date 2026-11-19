@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
+from typing import Protocol
 
 from common.clock import Clock
 from common.config import ExecutorConfig
@@ -33,8 +34,18 @@ from executor.core.state import ExecutionState
 
 logger = get_logger(__name__)
 
-_WEIGHT_SUM_TOLERANCE = 1e-6
 _TERMINAL_STATUSES = frozenset({OrderStatus.FILLED, OrderStatus.REJECTED})
+# Fill polling backs off from 0.5 s to 2 s. The broker's rate limit is ~200
+# calls/min on the free plan (AGENTS.md section 7.4); a fixed 0.1 s interval
+# polled every order at ~10 req/s and could exhaust it (mistakes.md QA-010).
+_POLL_INITIAL_SECONDS = 0.5
+_POLL_MAX_SECONDS = 2.0
+
+
+class FailureNotifier(Protocol):
+    """Publishes a failed or rejected execution attempt (AGENTS.md section 6.13)."""
+
+    def notify_failure(self, proposal_id: str, status: ProposalStatus, reason: str) -> None: ...
 
 
 class RebalanceService:
@@ -45,7 +56,8 @@ class RebalanceService:
     layer.
     Postconditions: the idempotency key records exactly one final result, the
     proposal ends in EXECUTED/PARTIAL/FAILED and the reconciled state is
-    written from real broker positions.
+    written from real broker positions. Every rejected or failed attempt is
+    announced through the notifier, when one is configured.
     """
 
     def __init__(
@@ -55,12 +67,14 @@ class RebalanceService:
         config: ExecutorConfig,
         clock: Clock,
         waiter: Callable[[float], None] | None = None,
+        notifier: FailureNotifier | None = None,
     ) -> None:
         self._state = state
         self._broker = broker
         self._config = config
         self._clock = clock
         self._waiter = waiter if waiter is not None else time.sleep
+        self._notifier = notifier
 
     def execute(self, proposal_id: str, idempotency_key: str) -> ExecutionResult:
         """Run the full rebalance flow for one proposal and idempotency key."""
@@ -93,15 +107,35 @@ class RebalanceService:
                 current_prices,
                 self._config.min_order_notional,
             )
-            result = self._submit(plan, current_prices)
+            result = self._submit(plan)
         except IdempotencyConflict:
             # the in-flight owner of the claim records its own result
             raise
         except PortfolioError as exc:
             self._record_failure(proposal_id, idempotency_key, exc, transitioned)
+            # A failure after the EXECUTING transition leaves the proposal
+            # FAILED; a rejection before it leaves the proposal PENDING and
+            # retryable. Both are announced so no outcome is silent.
+            self._announce_failure(
+                proposal_id,
+                ProposalStatus.FAILED if transitioned else ProposalStatus.PENDING,
+                str(exc),
+            )
             raise
         self._persist(proposal_id, idempotency_key, result)
         return result
+
+    def _announce_failure(self, proposal_id: str, status: ProposalStatus, reason: str) -> None:
+        """Notify a failed attempt; a notification error never masks the failure."""
+        if self._notifier is None:
+            return
+        try:
+            self._notifier.notify_failure(proposal_id, status, reason)
+        except PortfolioError:
+            logger.exception(
+                "failure notification failed",
+                extra={"proposal_id": proposal_id, "status": status.value},
+            )
 
     def _load_proposal(self, proposal_id: str) -> ProposalRecord:
         record = self._state.read_proposal(proposal_id)
@@ -156,7 +190,7 @@ class RebalanceService:
             prices[symbol] = self._broker.get_price(symbol)
         return prices
 
-    def _submit(self, plan: OrderPlan, current_prices: Mapping[str, float]) -> ExecutionResult:
+    def _submit(self, plan: OrderPlan) -> ExecutionResult:
         deadline = self._clock.now() + timedelta(seconds=self._config.execution_timeout_seconds)
         fills: list[FilledOrder] = []
         for order in plan.sales + plan.buys:
@@ -188,7 +222,10 @@ class RebalanceService:
                 )
             )
         status = ProposalStatus.EXECUTED if not fills else _classify(fills)
-        reconciliation = self._reconcile(current_prices)
+        # Re-price after the fills: the reconciled weights must reflect the
+        # market at reconciliation time, not the prices used to plan the
+        # orders (mistakes.md QA-015).
+        reconciliation = self._reconcile()
         if status is ProposalStatus.FAILED:
             # Even when every order was rejected the positions and equity are
             # the real broker state, so the failure still reconciles it.
@@ -212,18 +249,27 @@ class RebalanceService:
         snapshot: OrderSnapshot,
         deadline: datetime,
     ) -> OrderSnapshot:
+        interval = _POLL_INITIAL_SECONDS
         while snapshot.status not in _TERMINAL_STATUSES:
-            if self._clock.now() >= deadline:
+            remaining = (deadline - self._clock.now()).total_seconds()
+            if remaining <= 0.0:
                 logger.warning(
                     "execution timeout reached",
                     extra={"client_order_id": order.client_order_id},
                 )
                 return snapshot
-            self._waiter(0.1)
+            self._waiter(min(interval, remaining))
+            interval = min(interval * 2.0, _POLL_MAX_SECONDS)
             snapshot = self._broker.get_order_status(order.client_order_id)
         return snapshot
 
-    def _reconcile(self, current_prices: Mapping[str, float]) -> Reconciliation | None:
+    def _reconcile(self) -> Reconciliation | None:
+        """Value the real broker positions at current market prices.
+
+        Postconditions: returns ``None`` when there is nothing to reconcile
+        (no positions or non-positive equity); otherwise the weights are the
+        position values divided by the account equity.
+        """
         positions = self._broker.get_positions()
         equity = self._broker.get_account_equity()
         if not positions or equity <= 0.0:
@@ -236,7 +282,7 @@ class RebalanceService:
         # the remainder and sum(weights) <= 1. Dividing by the position total
         # would overstate every holding whenever cash exists.
         values = {
-            position.symbol: position.quantity * current_prices[position.symbol]
+            position.symbol: position.quantity * self._broker.get_price(position.symbol)
             for position in positions
         }
         weights = {symbol: value / equity for symbol, value in values.items()}
@@ -314,17 +360,7 @@ class RebalanceService:
         ``None`` if the broker or the price feed also failed; never raises.
         """
         try:
-            positions = self._broker.get_positions()
-            if not positions:
-                logger.warning(
-                    "post-failure reconciliation skipped: broker reports no positions",
-                    extra={"proposal_id": proposal_id},
-                )
-                return None
-            prices = {
-                position.symbol: self._broker.get_price(position.symbol) for position in positions
-            }
-            return self._reconcile(prices)
+            return self._reconcile()
         except PortfolioError:
             logger.exception(
                 "post-failure reconciliation failed; orders in flight must be "

@@ -160,7 +160,19 @@ class TestWriteReconciledState:
         )["Item"]
         assert float(item["weights"]["M"]["SPY"]["N"]) == pytest.approx(0.6)
         assert item["account_value"]["N"] == "10000.000000000000"
-        assert item["reconciled_at"]["S"] == NOW.isoformat()
+        assert item["reconciled_at"]["S"] == NOW.isoformat(timespec="microseconds")
+
+    def test_an_older_reconciliation_never_overwrites_a_newer_one(self, state_table) -> None:
+        """AGENTS.md section 7.2: a late, older write must not roll the state back."""
+        newer = NOW + timedelta(minutes=5)
+        _state().write_reconciled_state({"SPY": 0.6}, 10_000.0, newer)
+        _state().write_reconciled_state({"SPY": 0.1}, 10_000.0, NOW)
+        item = state_table.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        assert float(item["weights"]["M"]["SPY"]["N"]) == pytest.approx(0.6)
+        assert item["reconciled_at"]["S"] == newer.isoformat(timespec="microseconds")
 
     def test_rejects_weights_above_the_account_equity(self, state_table) -> None:
         with pytest.raises(StorageError, match="account equity"):

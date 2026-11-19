@@ -156,6 +156,7 @@ class DynamoExecutionState:
             raise StorageError("reconciled weights must not exceed the account equity")
         if not math.isfinite(account_value) or account_value <= 0.0:
             raise StorageError("account value must be finite and positive")
+        reconciled_at = now.astimezone(UTC).isoformat(timespec="microseconds")
         item = {
             "pk": {"S": STATE_PARTITION},
             "sk": {"S": CURRENT_SORT_KEY},
@@ -163,11 +164,27 @@ class DynamoExecutionState:
                 "M": {symbol: {"N": decimal_string(weight)} for symbol, weight in weights.items()}
             },
             "account_value": {"N": decimal_string(account_value)},
-            "reconciled_at": {"S": now.astimezone(UTC).isoformat()},
+            "reconciled_at": {"S": reconciled_at},
         }
+        # Monotonic write (AGENTS.md section 7.2): an older reconciliation that
+        # finishes late must never overwrite a newer one. ISO-8601 UTC strings
+        # with fixed microseconds compare chronologically.
         try:
-            self._client.put_item(TableName=self._table_name, Item=item)
-        except (BotoCoreError, ClientError) as exc:
+            self._client.put_item(
+                TableName=self._table_name,
+                Item=item,
+                ConditionExpression="attribute_not_exists(pk) OR reconciled_at < :reconciled_at",
+                ExpressionAttributeValues={":reconciled_at": {"S": reconciled_at}},
+            )
+        except ClientError as exc:
+            if _is_conditional_failure(exc):
+                logger.warning(
+                    "stored reconciled state is newer; keeping it",
+                    extra={"reconciled_at": reconciled_at},
+                )
+                return
+            raise StorageError("failed to write reconciled state") from exc
+        except BotoCoreError as exc:
             raise StorageError("failed to write reconciled state") from exc
 
     def claim_idempotency(
