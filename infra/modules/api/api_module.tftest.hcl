@@ -1,4 +1,10 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_data "aws_region" {
+    defaults = {
+      name = "us-east-1"
+    }
+  }
+}
 
 variables {
   project                = "portfolio-markowitz-aws"
@@ -263,4 +269,15 @@ run "image_tag_must_be_an_immutable_digest" {
   }
 
   expect_failures = [var.image_tag]
+}
+
+run "cognito_hosted_ui_url_uses_the_regional_domain" {
+  command = plan
+
+  # The provider attribute is only the prefix; the hosted UI needs the
+  # ".auth.<region>.amazoncognito.com" host (mistakes.md QA-006).
+  assert {
+    condition     = output.cognito_hosted_ui_url == "https://portfolio-markowitz.auth.us-east-1.amazoncognito.com"
+    error_message = "The hosted UI URL must be https://<prefix>.auth.<region>.amazoncognito.com."
+  }
 }

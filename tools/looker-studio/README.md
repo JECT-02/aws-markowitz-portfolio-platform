@@ -21,7 +21,7 @@ no se aplanan (se agregan después si se necesitan).
 
 1. **Terraform:** aplica el entorno dev; recupera
    `terraform -chdir=infra/envs/dev output looker_connector_client_id`
-   y `..._client_secret` (sensitive), más `cognito_domain` y `api_endpoint`.
+   y `..._client_secret` (sensitive), más `cognito_hosted_ui_url` y `api_endpoint`.
 2. **Apps Script** (<https://script.google.com>): proyecto nuevo → pega
    `Code.gs`. Añade la librería **OAuth2** oficial de googleworkspace
    (repositorio `github.com/googleworkspace/apps-script-oauth2`; usa el

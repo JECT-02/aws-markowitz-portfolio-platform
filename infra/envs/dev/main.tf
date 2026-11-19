@@ -133,7 +133,7 @@ module "web" {
   project        = "portfolio-markowitz-aws"
   env            = var.env
   api_endpoint   = module.api.api_endpoint
-  cognito_domain = "https://${module.api.cognito_domain}"
+  cognito_domain = module.api.cognito_hosted_ui_url
   client_id      = module.api.web_client_id
 }
 
@@ -261,8 +261,8 @@ output "web_client_id" {
   value = module.api.web_client_id
 }
 
-output "cognito_domain" {
-  value = module.api.cognito_domain
+output "cognito_hosted_ui_url" {
+  value = module.api.cognito_hosted_ui_url
 }
 
 output "looker_connector_client_id" {
