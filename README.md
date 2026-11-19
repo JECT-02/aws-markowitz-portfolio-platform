@@ -91,17 +91,28 @@ lookback con la ventana y la validación). Los tickers y el tope por activo
    (`bucket = "<state_bucket_name>"`; el archivo está en `.gitignore`) y el
    repositorio con la variable `TERRAFORM_BACKEND_BUCKET` para el plan de CI.
 3. Claves de Alpaca en SSM (`/portfolio-markowitz/dev/alpaca/...`).
-4. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
-5. Construir y publicar las 7 imágenes en su repositorio ECR: `make freeze`
+4. Construir y publicar las 7 imágenes en su repositorio ECR: `make freeze`
    corre solo antes de cada build; publica con digest inmutable (nunca
-   `latest`) y exporta `TF_VAR_image_digests` con **un digest por imagen**
-   (`ingest`, `clean`, `optimizer`, `monitor`, `backtest`, `reader`,
-   `executor`). Un digest solo existe dentro de su repositorio, así que no se
-   puede reutilizar el del optimizador. La imagen base
-   `public.ecr.aws/lambda/python:3.12` es un tag mutable: obtén su digest
-   con `docker pull`/`docker inspect` y pínalo en los 7 Dockerfiles (L-16).
-6. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).
-7. Crear tu usuario en Cognito y asignarlo al grupo `executors` (aprueba el
+   `latest`) y anota **un digest por imagen** (`ingest`, `clean`, `optimizer`,
+   `monitor`, `backtest`, `reader`, `executor`). Un digest solo existe dentro
+   de su repositorio, así que no se puede reutilizar el del optimizador. La
+   imagen base `public.ecr.aws/lambda/python:3.12` es un tag mutable: obtén su
+   digest con `docker pull`/`docker inspect` y pínalo en los 7 Dockerfiles
+   (L-16).
+5. Exporta las dos variables obligatorias del entorno (no tienen valor por
+   defecto, así que un `plan` sin ellas se detiene nombrando la que falta):
+
+   ```bash
+   export TF_VAR_image_digests='{"ingest"="sha256:...","clean"="sha256:...",...}'
+   export TF_VAR_cognito_domain_prefix="portfolio-markowitz-dev-<tu-sufijo>"
+   ```
+
+   El prefijo de Cognito es único **por región**: si está ocupado, cambia el
+   sufijo (QA-027). `infra/envs/dev/terraform.tfvars.example` muestra la forma
+   de ambas variables sin valores reales.
+6. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
+7. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).
+8. Crear tu usuario en Cognito y asignarlo al grupo `executors` (aprueba el
    rebalanceo en la demo vía API).
 
 ## Pruebas

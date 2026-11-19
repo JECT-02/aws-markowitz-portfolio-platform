@@ -108,7 +108,8 @@ module "api" {
   image_digests = var.image_digests
   code_version  = var.code_version
 
-  spa_allowed_origin = var.spa_allowed_origin
+  cognito_domain_prefix = var.cognito_domain_prefix
+  spa_allowed_origin    = var.spa_allowed_origin
 
   looker_connector_callback_urls = var.looker_connector_callback_urls
 
@@ -151,8 +152,7 @@ variable "aws_region" {
 
 variable "image_digests" {
   type        = map(string)
-  description = "Immutable ECR digest (sha256:<64 hex>) per image, keyed ingest/clean/optimizer/monitor/backtest/reader/executor. Export it as TF_VAR_image_digests before plan/apply: a digest identifies a manifest inside one repository, so no digest can be shared."
-  default     = {}
+  description = "Immutable ECR digest (sha256:<64 hex>) per image, keyed ingest/clean/optimizer/monitor/backtest/reader/executor. Required: export it as TF_VAR_image_digests before plan/apply. A digest identifies a manifest inside one repository, so no digest can be shared (QA-002/QA-003)."
 
   validation {
     condition = alltrue([
@@ -190,6 +190,11 @@ variable "looker_connector_callback_urls" {
   type        = list(string)
   description = "Apps Script /usercallback URLs of the deployed Looker Studio connector; empty keeps its OAuth flows disabled."
   default     = []
+}
+
+variable "cognito_domain_prefix" {
+  type        = string
+  description = "Cognito hosted-UI domain prefix. Required because the prefix must be unique within the AWS region, so any default can be taken (QA-027). Export it as TF_VAR_cognito_domain_prefix, for example portfolio-markowitz-dev-<your-suffix>."
 }
 
 output "bronze_bucket_name" {

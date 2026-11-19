@@ -38,8 +38,12 @@ variable "env" {
 
 variable "cognito_domain_prefix" {
   type        = string
-  description = "Global Cognito hosted UI domain prefix (N-25); make it unique if the default is taken."
-  default     = "portfolio-markowitz"
+  description = "Cognito hosted-UI domain prefix. The prefix is unique within the AWS region, so it is an input with no default (QA-027): a shared name blocks the apply and the fix is to pick another one."
+
+  validation {
+    condition     = can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", var.cognito_domain_prefix))
+    error_message = "The Cognito domain prefix must be 1-63 characters of lowercase letters, digits and interior hyphens, and must be unique within the region."
+  }
 }
 
 variable "image_digests" {
