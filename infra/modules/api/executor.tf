@@ -40,11 +40,11 @@ variable "executor_max_price_drift_pct" {
 
 variable "executor_execution_timeout_seconds" {
   type        = number
-  description = "How long the executor polls for order fills; must stay below the 25s Lambda timeout."
+  description = "How long the executor polls for order fills; must stay well below the 60s Lambda timeout so reconciliation and notification still run."
   default     = 15
   validation {
-    condition     = var.executor_execution_timeout_seconds > 0 && var.executor_execution_timeout_seconds < 25
-    error_message = "The execution timeout must be between 1 and 24 seconds."
+    condition     = var.executor_execution_timeout_seconds > 0 && var.executor_execution_timeout_seconds < 60
+    error_message = "The execution timeout must be between 1 and 59 seconds."
   }
 }
 
@@ -196,10 +196,16 @@ resource "aws_lambda_function" "executor" {
     command = ["executor.handler.handler"]
   }
 
-  # HTTP API v2 synchronous invocations cap at 29s; leave headroom for the
-  # platform while the fill polling deadline (15s) stays inside the window.
+  # API Gateway caps a synchronous HTTP API integration at 30s and that quota
+  # cannot be raised (AWS HTTP API quotas, checked 2026-11-19), so the caller can
+  # receive a 504 before the executor is done. The function outlives that cap on
+  # purpose (mistakes.md QA-017): a Lambda killed mid-flight leaves the proposal
+  # EXECUTING, the idempotency key locked and no reconciliation or notification.
+  # With 60s a single invocation always reaches the reconcile and the SNS
+  # message, and a retry with the same Idempotency-Key replays the stored
+  # result. The fill polling deadline (15s by default) stays far below it.
   memory_size = 512
-  timeout     = 25
+  timeout     = 60
 
   environment {
     variables = {
