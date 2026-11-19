@@ -52,6 +52,7 @@ _OPEN_STATUSES = frozenset(
         AlpacaOrderStatus.PENDING_CANCEL,
         AlpacaOrderStatus.PENDING_REPLACE,
         AlpacaOrderStatus.HELD,
+        AlpacaOrderStatus.PENDING_REVIEW,
         AlpacaOrderStatus.REPLACED,
     }
 )
@@ -196,10 +197,12 @@ class AlpacaPaperBroker:
             bars = self._data.get_stock_bars(request)
         except APIError as exc:
             raise BrokerError(f"adjusted close request failed for {symbol}") from exc
-        bar_set = bars.get(symbol) if isinstance(bars, dict) else None
-        series = list(getattr(bar_set, "bars", []) or [])
+        # alpaca-py 0.45 returns a BarSet whose ``data`` maps each symbol to a
+        # list of Bar objects (``timestamp``, not ``date``); a missing symbol is
+        # an empty series, not an error at this layer.
+        series = list(getattr(bars, "data", {}).get(symbol, []))
         close = next(
-            (float(bar.close) for bar in reversed(series) if bar.date.date() == as_of),
+            (float(bar.close) for bar in reversed(series) if bar.timestamp.date() == as_of),
             None,
         )
         if close is None:
