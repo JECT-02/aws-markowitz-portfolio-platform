@@ -92,9 +92,12 @@ lookback con la ventana y la validación). Los tickers y el tope por activo
    repositorio con la variable `TERRAFORM_BACKEND_BUCKET` para el plan de CI.
 3. Claves de Alpaca en SSM (`/portfolio-markowitz/dev/alpaca/...`).
 4. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
-5. Construir y publicar las imágenes Docker en ECR: `make freeze` corre solo
-   antes de cada build; publica con digest inmutable (nunca `latest`) y fija
-   `OPTIMIZER_IMAGE_TAG` al **digest** `sha256:<64 hex>`. La imagen base
+5. Construir y publicar las 7 imágenes en su repositorio ECR: `make freeze`
+   corre solo antes de cada build; publica con digest inmutable (nunca
+   `latest`) y exporta `TF_VAR_image_digests` con **un digest por imagen**
+   (`ingest`, `clean`, `optimizer`, `monitor`, `backtest`, `reader`,
+   `executor`). Un digest solo existe dentro de su repositorio, así que no se
+   puede reutilizar el del optimizador. La imagen base
    `public.ecr.aws/lambda/python:3.12` es un tag mutable: obtén su digest
    con `docker pull`/`docker inspect` y pínalo en los 7 Dockerfiles (L-16).
 6. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).

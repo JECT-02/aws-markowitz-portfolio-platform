@@ -56,10 +56,10 @@ module "data" {
 module "pipeline" {
   source = "../../modules/pipeline"
 
-  project      = "portfolio-markowitz-aws"
-  env          = var.env
-  image_tag    = var.optimizer_image_tag
-  code_version = var.code_version
+  project       = "portfolio-markowitz-aws"
+  env           = var.env
+  image_digests = var.image_digests
+  code_version  = var.code_version
 
   strategy = local.strategy_values
 
@@ -85,10 +85,10 @@ module "pipeline" {
 module "backtest" {
   source = "../../modules/backtest"
 
-  project      = "portfolio-markowitz-aws"
-  env          = var.env
-  image_tag    = var.optimizer_image_tag
-  code_version = var.code_version
+  project       = "portfolio-markowitz-aws"
+  env           = var.env
+  image_digests = var.image_digests
+  code_version  = var.code_version
 
   strategy = local.strategy_values
 
@@ -103,10 +103,10 @@ module "backtest" {
 module "api" {
   source = "../../modules/api"
 
-  project      = "portfolio-markowitz-aws"
-  env          = var.env
-  image_tag    = var.optimizer_image_tag
-  code_version = var.code_version
+  project       = "portfolio-markowitz-aws"
+  env           = var.env
+  image_digests = var.image_digests
+  code_version  = var.code_version
 
   spa_allowed_origin = var.spa_allowed_origin
 
@@ -149,13 +149,16 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
-variable "optimizer_image_tag" {
-  type        = string
-  description = "Immutable ECR digest (sha256:<64 hex>) for every pipeline/backtest/api image."
-  default     = ""
+variable "image_digests" {
+  type        = map(string)
+  description = "Immutable ECR digest (sha256:<64 hex>) per image, keyed ingest/clean/optimizer/monitor/backtest/reader/executor. Export it as TF_VAR_image_digests before plan/apply: a digest identifies a manifest inside one repository, so no digest can be shared."
+  default     = {}
+
   validation {
-    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.optimizer_image_tag))
-    error_message = "Set OPTIMIZER_IMAGE_TAG to the image digest (sha256:<64 hex>); mutable tags and 'latest' are forbidden by AGENTS.md."
+    condition = alltrue([
+      for digest in values(var.image_digests) : can(regex("^sha256:[0-9a-f]{64}$", digest))
+    ])
+    error_message = "Every image_digests value must be an immutable sha256 digest (sha256:<64 hex>); mutable tags and 'latest' are forbidden by AGENTS.md 11.2."
   }
 }
 

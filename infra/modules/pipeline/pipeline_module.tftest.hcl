@@ -1,9 +1,22 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_resource "aws_ecr_repository" {
+    defaults = {
+      # The URL is computed at apply time; pinning it lets the image_uri
+      # assertions run at plan time (QA-002/QA-003).
+      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
+    }
+  }
+}
 
 variables {
-  project      = "portfolio-markowitz-aws"
-  env          = "dev"
-  image_tag    = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  project = "portfolio-markowitz-aws"
+  env     = "dev"
+  image_digests = {
+    ingest    = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    clean     = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    optimizer = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    monitor   = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  }
   code_version = "abc1234"
   # Same values as config/strategy.yaml; the variable validation rejects
   # incomplete or empty maps (see strategy_must_be_complete below).
@@ -44,12 +57,33 @@ variables {
   alpaca_secret_key_parameter = "/portfolio-markowitz/dev/alpaca/secret-key"
 }
 
-run "image_tag_validation_rejects_latest" {
+run "image_digests_are_never_mutable_tags" {
   command = plan
 
   assert {
-    condition     = var.image_tag != "latest" && var.image_tag != ""
+    condition     = alltrue([for digest in values(var.image_digests) : digest != "latest" && digest != ""])
     error_message = "The module must never run an image tagged latest."
+  }
+
+  assert {
+    condition     = length(var.image_digests) == 4
+    error_message = "One digest per function (ingest, clean, optimizer, monitor) is required."
+  }
+}
+
+run "each_function_keeps_its_own_digest" {
+  command = plan
+
+  # QA-003: each function boots the image published in its own repository, so
+  # no two functions may receive the same digest.
+  assert {
+    condition     = alltrue([for name in ["ingest", "clean", "optimizer", "monitor"] : contains(keys(var.image_digests), name)])
+    error_message = "Every function needs its own image digest."
+  }
+
+  assert {
+    condition     = length(distinct(values(var.image_digests))) == length(var.image_digests)
+    error_message = "Two functions cannot share one image digest."
   }
 }
 
@@ -348,12 +382,17 @@ run "monitor_schedule_uses_the_15_minute_ny_cron" {
   }
 }
 
-run "image_tag_must_be_an_immutable_digest" {
+run "image_digests_must_be_an_immutable_digest" {
   command = plan
 
   variables {
-    image_tag = "v1.2.3"
+    image_digests = {
+      ingest    = "v1.2.3"
+      clean     = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      optimizer = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      monitor   = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    }
   }
 
-  expect_failures = [var.image_tag]
+  expect_failures = [var.image_digests]
 }

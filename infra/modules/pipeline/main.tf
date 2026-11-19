@@ -97,13 +97,16 @@ variable "env" {
   description = "Deployment environment (dev or prod)."
 }
 
-variable "image_tag" {
-  type        = string
-  description = "Pinned ECR tag or digest for the three function images. NEVER 'latest' (AGENTS.md section 11.2)."
+variable "image_digests" {
+  type        = map(string)
+  description = "Immutable ECR digest (sha256:<64 hex>) per function, keyed ingest/clean/optimizer/monitor. Each digest exists only in its own repository."
+  default     = {}
 
   validation {
-    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.image_tag))
-    error_message = "image_tag must be an immutable sha256 digest (sha256:<64 hex>); mutable tags and 'latest' are forbidden (AGENTS.md 11.2)."
+    condition = alltrue([
+      for digest in values(var.image_digests) : can(regex("^sha256:[0-9a-f]{64}$", digest))
+    ])
+    error_message = "Every image_digests value must be an immutable sha256 digest (sha256:<64 hex>); mutable tags and 'latest' are forbidden (AGENTS.md 11.2)."
   }
 }
 
@@ -478,7 +481,14 @@ resource "aws_lambda_function" "pipeline" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.functions[each.key].repository_url}:${var.image_tag}"
+  image_uri     = "${aws_ecr_repository.functions[each.key].repository_url}@${lookup(var.image_digests, each.key, "")}"
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, each.key, "")))
+      error_message = "image_digests[\"${each.key}\"] is missing or is not a sha256:<64 hex> digest: pass one digest per image repository in TF_VAR_image_digests."
+    }
+  }
 
   image_config {
     command = each.value.cmd
