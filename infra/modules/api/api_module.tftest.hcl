@@ -194,8 +194,8 @@ run "executor_is_a_bounded_container_image" {
   }
 
   assert {
-    condition     = aws_lambda_function.executor.memory_size == 512 && aws_lambda_function.executor.timeout == 25
-    error_message = "The Executor runs with 512 MB and a 25s timeout (below the 29s HTTP API sync cap)."
+    condition     = aws_lambda_function.executor.memory_size == 512 && aws_lambda_function.executor.timeout == 60
+    error_message = "The Executor runs with 512 MB and a 60s timeout: it must finish reconciling after the 30s HTTP API integration cap returns a 504 (QA-017)."
   }
 }
 
