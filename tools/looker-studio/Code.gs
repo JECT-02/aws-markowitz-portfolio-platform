@@ -98,7 +98,7 @@ var TABLES = {
       var live = document.live_weights || document.weights || {};
       var actual = document.weights || {};
       var tickers = {};
-      Object.keys(proposed).forEach(function (ticker) {
+      Object.keys(actual).forEach(function (ticker) {
         tickers[ticker] = true;
       });
       Object.keys(live).forEach(function (ticker) {
@@ -226,11 +226,12 @@ function authCallback(request) {
 function getConfig(request) {
   var config = cc.getConfig();
   config.newInfo().setId("instructions").setText("Elige la tabla del portafolio. La autenticacion usa tu usuario Cognito.");
-  config.newSelect().setId("table").setName("Tabla").addOptions(
-    Object.keys(TABLES).map(function (name) {
-      return cc.newOptionBuilder().setLabel(TABLES[name].label).setValue(name);
-    })
-  );
+  // Community connector Config API (DataStudioApp): newSelectSingle() takes one
+  // addOption() per option; option builders come from config.newOptionBuilder().
+  var table = config.newSelectSingle().setId("table").setName("Tabla");
+  Object.keys(TABLES).forEach(function (name) {
+    table.addOption(config.newOptionBuilder().setLabel(TABLES[name].label).setValue(name));
+  });
   config.setDateRangeRequired(false);
   return config.build();
 }
@@ -328,5 +329,5 @@ function getOAuthService() {
 }
 
 function _fail(message) {
-  cc.newUserError().setText(message).throw();
+  cc.newUserError().setText(message).throwException();
 }
