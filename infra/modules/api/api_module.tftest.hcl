@@ -1,4 +1,11 @@
 mock_provider "aws" {
+  mock_resource "aws_ecr_repository" {
+    defaults = {
+      # The URL is computed at apply time; pinning it lets the image_uri
+      # assertions run at plan time (QA-002/QA-003).
+      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
+    }
+  }
   mock_data "aws_region" {
     defaults = {
       name = "us-east-1"
@@ -7,9 +14,12 @@ mock_provider "aws" {
 }
 
 variables {
-  project                = "portfolio-markowitz-aws"
-  env                    = "dev"
-  image_tag              = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  project = "portfolio-markowitz-aws"
+  env     = "dev"
+  image_digests = {
+    reader   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    executor = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
   code_version           = "abc1234"
   spa_allowed_origin     = "https://spa.example.com"
   bronze_bucket_name     = "portfolio-markowitz-aws-dev-lakehouse-bronze"
@@ -272,14 +282,33 @@ run "executor_carries_the_allowed_groups_and_the_cognito_group" {
   }
 }
 
-run "image_tag_must_be_an_immutable_digest" {
+run "image_digests_must_be_an_immutable_digest" {
   command = plan
 
   variables {
-    image_tag = "v1.2.3"
+    image_digests = {
+      reader   = "v1.2.3"
+      executor = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
   }
 
-  expect_failures = [var.image_tag]
+  expect_failures = [var.image_digests]
+}
+
+run "reader_and_executor_keep_separate_digests" {
+  command = plan
+
+  # QA-003: one digest identifies a manifest inside a single repository, so the
+  # Reader and the Executor can never share it.
+  assert {
+    condition     = contains(keys(var.image_digests), "reader") && contains(keys(var.image_digests), "executor")
+    error_message = "Every function needs its own image digest."
+  }
+
+  assert {
+    condition     = var.image_digests["reader"] != var.image_digests["executor"]
+    error_message = "The Reader and the Executor cannot share one digest."
+  }
 }
 
 run "cognito_hosted_ui_url_uses_the_regional_domain" {

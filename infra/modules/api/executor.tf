@@ -183,7 +183,14 @@ resource "aws_lambda_function" "executor" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.executor.repository_url}:${var.image_tag}"
+  image_uri     = "${aws_ecr_repository.executor.repository_url}@${lookup(var.image_digests, "executor", "")}"
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, "executor", "")))
+      error_message = "image_digests[\"executor\"] is missing or is not a sha256:<64 hex> digest: pass the Executor image digest in TF_VAR_image_digests."
+    }
+  }
 
   image_config {
     command = ["executor.handler.handler"]

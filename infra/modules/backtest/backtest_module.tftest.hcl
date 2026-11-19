@@ -1,9 +1,19 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_resource "aws_ecr_repository" {
+    defaults = {
+      # The URL is computed at apply time; pinning it lets the image_uri
+      # assertions run at plan time (QA-002/QA-003).
+      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
+    }
+  }
+}
 
 variables {
-  project      = "portfolio-markowitz-aws"
-  env          = "dev"
-  image_tag    = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  project = "portfolio-markowitz-aws"
+  env     = "dev"
+  image_digests = {
+    backtest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  }
   code_version = "abc1234"
   # Same values as config/strategy.yaml; the variable validation rejects
   # incomplete or empty maps.
@@ -29,11 +39,11 @@ variables {
   dlq_arn            = "arn:aws:sqs:us-east-1:123456789012:portfolio-markowitz-aws-dev-backtest-dlq"
 }
 
-run "image_tag_validation_rejects_latest" {
+run "image_digests_are_never_mutable_tags" {
   command = plan
 
   assert {
-    condition     = var.image_tag != "latest" && var.image_tag != ""
+    condition     = alltrue([for digest in values(var.image_digests) : digest != "latest" && digest != ""])
     error_message = "The module must never run an image tagged latest."
   }
 }
@@ -176,12 +186,23 @@ run "env_carries_the_buckets_and_code_version" {
   }
 }
 
-run "image_tag_must_be_an_immutable_digest" {
+run "image_digests_must_be_an_immutable_digest" {
   command = plan
 
   variables {
-    image_tag = "v1.2.3"
+    image_digests = {
+      backtest = "v1.2.3"
+    }
   }
 
-  expect_failures = [var.image_tag]
+  expect_failures = [var.image_digests]
+}
+
+run "backtest_keeps_its_own_digest" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(var.image_digests), "backtest")
+    error_message = "The backtest needs its own image digest."
+  }
 }
