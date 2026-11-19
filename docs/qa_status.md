@@ -3,7 +3,7 @@
 Registro vivo de los 31 hallazgos de `mistakes.md`. Se actualiza en la misma rama que cierra cada hallazgo,
 de modo que el archivo refleje lo mergeado y no lo prometido.
 
-**Progreso:** 24 de 31 en `main` · 1 en rama sin mergear · 1 en curso · 4 pendientes · 1 que requiere decisión humana.
+**Progreso:** 25 de 31 en `main` · 1 en rama sin mergear · 1 en curso · 3 pendientes · 1 que requiere decisión humana.
 
 | Leyenda | Significado |
 |---|---|
@@ -31,12 +31,12 @@ de modo que el archivo refleje lo mergeado y no lo prometido.
 | QA-014 | LOW | Contrato de precios de la propuesta muerto y sin fallback | 🧑 decisión humana | toca DynamoDB y el executor (§14.2) |
 | QA-015 | MEDIUM | La reconciliación usaba precios anteriores a la ejecución | ✅ main | PR #31 |
 | QA-016 | MEDIUM | Un timeout con estado desconocido se cacheaba como `FAILED` | ✅ main | PR #31 |
-| QA-017 | MEDIUM | Timeout de 25 s de la Lambda del executor era ajustado | 🚧 esta rama | rama `fix/qa-017-executor-timeout` |
+| QA-017 | MEDIUM | Timeout de 25 s de la Lambda del executor era ajustado | ✅ main | PR #34 |
 | QA-018 | MEDIUM | `_fail` del conector usaba `.throw()` en vez de `.throwException()` | ✅ main | PR #31 |
 | QA-019 | MEDIUM | El estado `PENDING_REVIEW` de Alpaca no estaba mapeado | ✅ main | PR #31 |
 | QA-020 | MEDIUM | La escritura de `w_actual` era incondicional | ✅ main | PR #31 |
 | QA-021 | MEDIUM | Un 404 de `/proposal` se renderizaba como propuesta | ✅ main | PR #31 |
-| QA-022 | LOW | `make check` no aplicaba el umbral de 90 % en `core/` | ⏳ pendiente | rama `fix/qa-022-coverage-core` |
+| QA-022 | LOW | `make check` no aplicaba el umbral de 90 % en `core/` | 🚧 esta rama | rama `fix/qa-022-coverage-core` |
 | QA-023 | LOW | `client_order_id` no seguía el formato literal de `AGENTS.md §6.9` | ⏳ pendiente | rama `docs/qa-023-client-order-id` |
 | QA-024 | LOW | Código muerto en el repositorio del optimizador | ✅ main | PR #31 |
 | QA-025 | LOW | Permiso `ssm:GetParameterHistory` innecesario en el executor | ✅ main | PR #31 |
@@ -49,17 +49,18 @@ de modo que el archivo refleje lo mergeado y no lo prometido.
 
 ## Rama en curso
 
-`fix/qa-017-executor-timeout` — QA-017: la Lambda del executor sube a 60 s para terminar de reconciliar y
-notificar aunque API Gateway corte la invocación síncrona a los 30 s (cuota de HTTP API que no se puede subir),
-con el deadline de polling (15 s) muy por debajo y la validación de la variable ajustada a ese límite.
+`fix/qa-022-coverage-core` — QA-022: `coverage-core` entra en `make check` y en el workflow de CI, cubre los
+cuatro `core/` críticos (optimizer, executor, ingest y backtest) y aplica el 90 % **por módulo** con
+`tools/check_core_coverage.py`, porque `coverage.py` solo admite un umbral global y el promedio de los cuatro
+dejaría pasar la regresión de uno pequeño. Estado medido al escribir esto: optimizer 92.19 %, executor 94.99 %,
+ingest 98.44 %, backtest 95.50 %.
 
 ## Pendientes, en orden
 
-1. `fix/qa-022-coverage-core` — QA-022.
-2. `fix/qa-013-run-date-window` — QA-013.
-3. `fix/qa-026-base-image-digests` — QA-026 (los digests de la imagen base los aporta el humano).
-4. `docs/qa-023-client-order-id` — QA-023 (solo documentación y una prueba del formato).
-5. `fix/qa-014-proposal-prices` — bloqueada: cambia el esquema de DynamoDB y el executor.
+1. `fix/qa-013-run-date-window` — QA-013.
+2. `fix/qa-026-base-image-digests` — QA-026 (los digests de la imagen base los aporta el humano).
+3. `docs/qa-023-client-order-id` — QA-023 (solo documentación y una prueba del formato).
+4. `fix/qa-014-proposal-prices` — bloqueada: cambia el esquema de DynamoDB y el executor.
 
 ## Pasos del humano
 
