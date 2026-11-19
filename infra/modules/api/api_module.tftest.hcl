@@ -215,6 +215,17 @@ run "executor_iam_is_least_privilege" {
   }
 }
 
+run "executor_reads_only_the_current_alpaca_parameters" {
+  command = plan
+
+  assert {
+    condition = alltrue(flatten([
+      for st in jsondecode(aws_iam_role_policy.executor_permissions.policy).Statement : [for a in try(tolist(st.Action), [st.Action]) : a != "ssm:GetParameterHistory"]
+    ]))
+    error_message = "The executor must not read parameter history (superseded credentials)."
+  }
+}
+
 run "executor_paper_mode_is_forced" {
   command = plan
 
