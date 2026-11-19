@@ -181,3 +181,22 @@ class TestDecimalString:
     def test_rejects_non_finite_values(self, value: float) -> None:
         with pytest.raises(ValueError, match="finite"):
             decimal_string(value)
+
+
+def test_unresolved_results_must_carry_a_reason_but_are_not_failures() -> None:
+    with pytest.raises(ValidationError, match="error message"):
+        ExecutionResult(proposal_id="p1", status=ProposalStatus.UNRESOLVED, orders=[])
+    result = ExecutionResult(
+        proposal_id="p1",
+        status=ProposalStatus.UNRESOLVED,
+        orders=[],
+        error="deadline reached",
+    )
+    assert result.status is ProposalStatus.UNRESOLVED
+    with pytest.raises(ValidationError, match="only failed or unresolved"):
+        ExecutionResult(
+            proposal_id="p1",
+            status=ProposalStatus.EXECUTED,
+            orders=[],
+            error="not allowed",
+        )

@@ -25,6 +25,7 @@ CURRENT_SORT_KEY = "CURRENT"
 PROPOSAL_PARTITION = "PROPOSAL"
 IDEMPOTENCY_PARTITION = "IDEMPOTENCY"
 IDEMPOTENCY_TTL = timedelta(hours=24)
+UNRESOLVED_STATUS = "UNRESOLVED"
 _WEIGHT_SUM_TOLERANCE = 1e-6
 
 
@@ -90,15 +91,17 @@ class DynamoExecutionState:
         return _parse_proposal(proposal_id, item)
 
     def transition_to_executing(self, proposal_id: str) -> None:
+        # An UNRESOLVED proposal may be resumed; anything else must be PENDING.
         try:
             self._client.update_item(
                 TableName=self._table_name,
                 Key={"pk": {"S": PROPOSAL_PARTITION}, "sk": {"S": proposal_id}},
                 UpdateExpression="SET #status = :executing",
-                ConditionExpression="#status = :pending",
+                ConditionExpression="#status IN (:pending, :unresolved)",
                 ExpressionAttributeNames={"#status": "status"},
                 ExpressionAttributeValues={
                     ":pending": {"S": "PENDING"},
+                    ":unresolved": {"S": "UNRESOLVED"},
                     ":executing": {"S": "EXECUTING"},
                 },
             )
@@ -219,7 +222,16 @@ class DynamoExecutionState:
                 existing = self._get_item(IDEMPOTENCY_PARTITION, idempotency_key)
                 if existing is None:
                     raise StorageError("idempotency claim disappeared") from exc
-                return _parse_claim(idempotency_key, existing)
+                previous = _parse_claim(idempotency_key, existing)
+                if previous.status == UNRESOLVED_STATUS and previous.proposal_id == proposal_id:
+                    return self._reclaim_unresolved(
+                        idempotency_key,
+                        proposal_id,
+                        created,
+                        expires,
+                        previous,
+                    )
+                return previous
             raise StorageError("failed to claim idempotency key") from exc
         except BotoCoreError as exc:
             raise StorageError("failed to claim idempotency key") from exc
@@ -261,6 +273,55 @@ class DynamoExecutionState:
             raise StorageError("failed to write idempotency result") from exc
         except BotoCoreError as exc:
             raise StorageError("failed to write idempotency result") from exc
+
+    def _reclaim_unresolved(
+        self,
+        idempotency_key: str,
+        proposal_id: str,
+        created: datetime,
+        expires: datetime,
+        previous: IdempotencyClaim,
+    ) -> IdempotencyClaim:
+        """Take over an UNRESOLVED claim for a resumed attempt, atomically.
+
+        Postconditions: the first retry to win the conditional update gets a
+        fresh claim that still carries the previous orders, so it can resume;
+        a concurrent retry that loses gets the non-fresh in-flight claim.
+        """
+        try:
+            self._client.update_item(
+                TableName=self._table_name,
+                Key={"pk": {"S": IDEMPOTENCY_PARTITION}, "sk": {"S": idempotency_key}},
+                UpdateExpression=(
+                    "SET #status = :executing, created_at = :created_at, "
+                    "expires_at = :expires_at, #ttl = :ttl"
+                ),
+                ConditionExpression="#status = :unresolved",
+                ExpressionAttributeNames={"#status": "status", "#ttl": "ttl"},
+                ExpressionAttributeValues={
+                    ":executing": {"S": "EXECUTING"},
+                    ":unresolved": {"S": UNRESOLVED_STATUS},
+                    ":created_at": {"S": created.isoformat()},
+                    ":expires_at": {"S": expires.isoformat()},
+                    ":ttl": {"N": str(int(expires.timestamp()))},
+                },
+            )
+        except ClientError as exc:
+            if _is_conditional_failure(exc):
+                existing = self._get_item(IDEMPOTENCY_PARTITION, idempotency_key)
+                if existing is None:
+                    raise StorageError("idempotency claim disappeared") from exc
+                return _parse_claim(idempotency_key, existing)
+            raise StorageError("failed to reclaim idempotency key") from exc
+        except BotoCoreError as exc:
+            raise StorageError("failed to reclaim idempotency key") from exc
+        return IdempotencyClaim(
+            idempotency_key=idempotency_key,
+            proposal_id=proposal_id,
+            status="EXECUTING",
+            result=previous.result,
+            fresh=True,
+        )
 
     def _get_item(self, partition: str, sort_key: str) -> dict[str, Any] | None:
         try:

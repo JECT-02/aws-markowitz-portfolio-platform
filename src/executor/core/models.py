@@ -17,6 +17,10 @@ class ProposalStatus(StrEnum):
     EXECUTED = "EXECUTED"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
+    # Not final: an order was still open at the execution deadline, or was
+    # never sent before it. A retry resumes it without resubmitting any order
+    # the broker already knows (AGENTS.md section 6.15).
+    UNRESOLVED = "UNRESOLVED"
 
 
 class PlannedOrder(BaseModel):
@@ -127,10 +131,11 @@ class ExecutionResult(BaseModel):
 
     @model_validator(mode="after")
     def _validate_status(self) -> ExecutionResult:
-        if self.status is ProposalStatus.FAILED and not self.error:
-            raise ValueError("failed results must carry an error message")
-        if self.status is not ProposalStatus.FAILED and self.error:
-            raise ValueError("only failed results may carry an error message")
+        carries_reason = self.status in (ProposalStatus.FAILED, ProposalStatus.UNRESOLVED)
+        if carries_reason and not self.error:
+            raise ValueError(f"{self.status.value} results must carry an error message")
+        if not carries_reason and self.error:
+            raise ValueError("only failed or unresolved results may carry an error message")
         return self
 
 
