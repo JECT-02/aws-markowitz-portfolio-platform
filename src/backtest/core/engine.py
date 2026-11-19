@@ -73,7 +73,6 @@ class BacktestEngine:
             raise DataValidationError("not enough history for a rebalance")
         rebalance_set = set(rebalance_rows)
         provider = self._provider(matrix.symbols, mode)
-        use_threshold = mode == "optimizer"
         initial = equal_weights(matrix.n_assets, self._universe.max_weight)
         current = initial.copy()
         returns: list[float] = []
@@ -85,12 +84,10 @@ class BacktestEngine:
                 training = matrix.values[row - window : row]
                 target = provider(training, current)
                 drift = turnover_l1(target, current)
-                should_trade = (
-                    drift > 0.0
-                    if not use_threshold
-                    else (drift > self._strategy.rebalance_l1_threshold)
-                )
-                if should_trade:
+                # The same L1 threshold for every allocation rule, so the
+                # benchmarks pay the same rotation costs as the optimizer
+                # (AGENTS.md section 5.6; mistakes.md QA-012).
+                if drift > self._strategy.rebalance_l1_threshold:
                     cost = self._strategy.transaction_cost_lambda * drift
                     current = target.copy()
                 rebalances.append(

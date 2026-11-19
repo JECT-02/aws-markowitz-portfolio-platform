@@ -16,10 +16,12 @@ from common.errors import (
     PriceDriftExceeded,
     ProposalExpired,
     ProposalNotPending,
+    StorageError,
 )
-from common.models import BrokerPosition
+from common.models import BrokerPosition, OrderSide, OrderSnapshot, OrderStatus
 from executor.core.execution import RebalanceService
 from executor.core.models import ProposalStatus
+from executor.core.planning import client_order_id_for
 from executor.core.simulated import SimulatedBroker
 from executor.core.state import DynamoExecutionState
 
@@ -129,13 +131,184 @@ def env():  # type: ignore[no-untyped-def]
         yield client, s3
 
 
-def _service(broker: SimulatedBroker, clock: Any = None) -> RebalanceService:
+def _service(
+    broker: SimulatedBroker,
+    clock: Any = None,
+    waiter: Any = None,
+    notifier: Any = None,
+) -> RebalanceService:
     return RebalanceService(
         state=DynamoExecutionState(TABLE_NAME, region_name="us-east-1"),
         broker=broker,
         config=_executor_config(),
         clock=clock if clock is not None else FixedClock(NOW),
+        waiter=waiter,
+        notifier=notifier,
     )
+
+
+class _RecordingNotifier:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[tuple[str, ProposalStatus, str]] = []
+        self._error = error
+
+    def notify_failure(self, proposal_id: str, status: ProposalStatus, reason: str) -> None:
+        self.calls.append((proposal_id, status, reason))
+        if self._error is not None:
+            raise self._error
+
+
+class _PriceMovesAfterFirstOrder(SimulatedBroker):
+    """Reprices SPY right after the first submission (mistakes.md QA-015)."""
+
+    def submit_order(
+        self,
+        client_order_id: str,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+    ) -> OrderSnapshot:
+        snapshot = super().submit_order(client_order_id, symbol, side, quantity)
+        self.set_price("SPY", 50.0)
+        return snapshot
+
+
+class _SlowFills(SimulatedBroker):
+    """Reports every order as open for the first ``open_polls`` lookups."""
+
+    def __init__(self, *args: Any, open_polls: int, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._open_polls = open_polls
+        self.polls = 0
+
+    def submit_order(
+        self,
+        client_order_id: str,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+    ) -> OrderSnapshot:
+        super().submit_order(client_order_id, symbol, side, quantity)
+        return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+
+    def get_order_status(self, client_order_id: str) -> OrderSnapshot:
+        self.polls += 1
+        if self.polls <= self._open_polls:
+            return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+        return super().get_order_status(client_order_id)
+
+
+class _BrokerRejectingSubmits(SimulatedBroker):
+    def submit_order(
+        self,
+        client_order_id: str,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+    ) -> OrderSnapshot:
+        raise BrokerError(f"alpaca rejected order {client_order_id}")
+
+
+class TestReconciliationPricing:
+    def test_reconciled_weights_use_the_prices_after_the_fills(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        broker = _PriceMovesAfterFirstOrder(
+            positions=[
+                BrokerPosition(symbol=symbol, quantity=100.0, price=price)
+                for symbol, price in (
+                    ("SPY", 100.0),
+                    ("QQQ", 50.0),
+                    ("IWM", 40.0),
+                    ("EFA", 80.0),
+                )
+            ],
+            equity=100_000.0,
+            prices={"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+        )
+        _service(broker).execute(PROPOSAL_ID, KEY)
+        spy_quantity = next(p.quantity for p in broker.get_positions() if p.symbol == "SPY")
+        state_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        spy_weight = float(state_item["weights"]["M"]["SPY"]["N"])
+        # Valued at the repriced 50.0, not at the 100.0 used to plan the orders.
+        assert spy_weight == pytest.approx(spy_quantity * 50.0 / 100_000.0, abs=1e-6)
+
+
+class TestFillPolling:
+    def test_polling_backs_off_from_half_a_second_to_two_seconds(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        intervals: list[float] = []
+        broker = _SlowFills(
+            positions=[
+                BrokerPosition(symbol=symbol, quantity=100.0, price=price)
+                for symbol, price in (
+                    ("SPY", 100.0),
+                    ("QQQ", 50.0),
+                    ("IWM", 40.0),
+                    ("EFA", 80.0),
+                )
+            ],
+            equity=100_000.0,
+            prices={"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+            open_polls=3,
+        )
+        _service(broker, waiter=intervals.append).execute(PROPOSAL_ID, KEY)
+        # The first order stays open for three lookups: 0.5, 1.0, 2.0 seconds.
+        assert intervals[:3] == pytest.approx([0.5, 1.0, 2.0])
+        assert max(intervals) <= 2.0
+        assert min(intervals) >= 0.5
+
+
+class TestFailureAnnouncements:
+    def test_a_rejected_attempt_is_announced_while_the_proposal_stays_pending(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        notifier = _RecordingNotifier()
+        with pytest.raises(MarketClosed):
+            _service(_broker(market_open=False), notifier=notifier).execute(PROPOSAL_ID, KEY)
+        assert len(notifier.calls) == 1
+        proposal_id, status, reason = notifier.calls[0]
+        assert proposal_id == PROPOSAL_ID
+        assert status is ProposalStatus.PENDING
+        assert "closed" in reason
+
+    def test_a_failure_after_execution_started_is_announced_as_failed(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        notifier = _RecordingNotifier()
+        with pytest.raises(BrokerError):
+            _service(_BrokerRejectingSubmits(**_broker_kwargs()), notifier=notifier).execute(
+                PROPOSAL_ID, KEY
+            )
+        assert [call[1] for call in notifier.calls] == [ProposalStatus.FAILED]
+
+    def test_a_notification_error_never_masks_the_original_failure(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        notifier = _RecordingNotifier(error=StorageError("sns is down"))
+        with pytest.raises(MarketClosed):
+            _service(_broker(market_open=False), notifier=notifier).execute(PROPOSAL_ID, KEY)
+        assert len(notifier.calls) == 1
+
+
+def _broker_kwargs() -> dict[str, Any]:
+    return {
+        "positions": [
+            BrokerPosition(symbol=symbol, quantity=100.0, price=price)
+            for symbol, price in (
+                ("SPY", 100.0),
+                ("QQQ", 50.0),
+                ("IWM", 40.0),
+                ("EFA", 80.0),
+            )
+        ],
+        "equity": 100_000.0,
+        "prices": {"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+    }
 
 
 class TestExecuteHappyPath:
@@ -366,3 +539,82 @@ class TestMidFlightFailure:
         broker.calls = 1  # fail immediately on the first order submit
         with pytest.raises(BrokerError, match="second order"):
             service.execute(PROPOSAL_ID, KEY)
+
+
+class _HeldOrders(SimulatedBroker):
+    """Fills orders as usual but reports the held ones as open until released."""
+
+    def __init__(self, *args: Any, held: set[str], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.held = set(held)
+
+    def release(self) -> None:
+        self.held.clear()
+
+    def submit_order(
+        self,
+        client_order_id: str,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+    ) -> OrderSnapshot:
+        snapshot = super().submit_order(client_order_id, symbol, side, quantity)
+        if client_order_id in self.held:
+            return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+        return snapshot
+
+    def get_order_status(self, client_order_id: str) -> OrderSnapshot:
+        if client_order_id in self.held:
+            return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+        return super().get_order_status(client_order_id)
+
+
+class TestUnresolvedAttempts:
+    def test_an_order_open_at_the_deadline_leaves_the_proposal_unresolved(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        spy_order = client_order_id_for(PROPOSAL_ID, "SPY", OrderSide.BUY)
+        broker = _HeldOrders(**_broker_kwargs(), held={spy_order})
+        clock = SteppingClock(NOW, step_seconds=10)
+        result = _service(broker, clock=clock, waiter=lambda _s: None).execute(PROPOSAL_ID, KEY)
+
+        assert result.status is ProposalStatus.UNRESOLVED
+        assert result.error is not None and "SPY" in result.error
+        proposal_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
+        )["Item"]
+        assert proposal_item["status"]["S"] == "UNRESOLVED"
+        claim_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "IDEMPOTENCY"}, "sk": {"S": KEY}},
+        )["Item"]
+        assert claim_item["status"]["S"] == "UNRESOLVED"
+        # No order id is ever sent twice, even when the deadline ends the attempt.
+        ids = [order_id for order_id, *_ in broker.submitted]
+        assert len(ids) == len(set(ids))
+
+    def test_a_retry_resumes_without_resubmitting_the_open_order(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        spy_order = client_order_id_for(PROPOSAL_ID, "SPY", OrderSide.BUY)
+        broker = _HeldOrders(**_broker_kwargs(), held={spy_order})
+        first = _service(
+            broker,
+            clock=SteppingClock(NOW, step_seconds=10),
+            waiter=lambda _s: None,
+        ).execute(PROPOSAL_ID, KEY)
+        assert first.status is ProposalStatus.UNRESOLVED
+
+        broker.release()
+        second = _service(broker).execute(PROPOSAL_ID, KEY)
+
+        assert second.status is ProposalStatus.EXECUTED
+        submitted_ids = [order_id for order_id, *_ in broker.submitted]
+        assert submitted_ids.count(spy_order) == 1
+        assert len(submitted_ids) == len(set(submitted_ids))
+        proposal_item = client.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
+        )["Item"]
+        assert proposal_item["status"]["S"] == "EXECUTED"

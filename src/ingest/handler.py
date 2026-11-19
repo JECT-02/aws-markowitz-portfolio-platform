@@ -44,6 +44,9 @@ class IngestDependencies:
 def run_ingestion(event: Mapping[str, object], deps: IngestDependencies) -> dict[str, object]:
     """Run the daily ingestion for the event run date."""
     run_date = resolve_run_date(event, deps.clock)
+    # Validated on every path, not only when the market is closed, so an
+    # invalid or 'mixed' source never passes silently (mistakes.md QA-028).
+    requested_source = _resolve_source(event)
     if not deps.calendar.is_trading_day(run_date):
         logger.info("market closed", extra={"run_date": run_date.isoformat()})
         # Contract: the pipeline state machine ResultSelector reads status,
@@ -54,7 +57,7 @@ def run_ingestion(event: Mapping[str, object], deps: IngestDependencies) -> dict
             "status": "SKIPPED",
             "run_id": resolve_run_id(event),
             "run_date": run_date.isoformat(),
-            "source": _resolve_source(event).value,
+            "source": requested_source.value,
             "accepted": {},
             "reason": "market_closed",
         }
@@ -131,6 +134,9 @@ def _resolve_source(event: Mapping[str, object]) -> DataSource:
     if not isinstance(value, str):
         raise ConfigurationError("source must be a string")
     try:
-        return DataSource(value)
+        source = DataSource(value)
     except ValueError as exc:
         raise ConfigurationError(f"unsupported source: {value}") from exc
+    if source is DataSource.MIXED:
+        raise ConfigurationError("source 'mixed' is an artifact label, not an event source")
+    return source

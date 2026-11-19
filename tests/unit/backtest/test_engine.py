@@ -100,9 +100,27 @@ def test_large_threshold_avoids_trading() -> None:
     assert all(rebalance.cost == 0.0 for rebalance in result.rebalances)
 
 
+def test_benchmarks_apply_the_same_rebalance_threshold_as_the_optimizer() -> None:
+    """mistakes.md QA-012: 1/N and minimum variance pay the same rotation rules."""
+    strategy = _strategy(rebalance_l1_threshold=10.0)
+    for mode in ("equal_weight", "minimum_variance"):
+        result = _engine(strategy).run(_matrix(), mode)
+        assert all(rebalance.cost == 0.0 for rebalance in result.rebalances), mode
+
+
+# StrategyConfig requires a positive threshold; this value trades on any drift.
+_ANY_DRIFT = 1e-9
+
+
 def test_transaction_costs_reduce_equity_for_equal_weight() -> None:
-    free = _engine(_strategy(transaction_cost_lambda=0.0)).run(_matrix(), "equal_weight")
-    costly = _engine(_strategy(transaction_cost_lambda=0.01)).run(_matrix(), "equal_weight")
+    # A threshold just above zero makes 1/N trade at every rebalance, which
+    # isolates the cost mechanics from the threshold rule.
+    free = _engine(_strategy(transaction_cost_lambda=0.0, rebalance_l1_threshold=_ANY_DRIFT)).run(
+        _matrix(), "equal_weight"
+    )
+    costly = _engine(
+        _strategy(transaction_cost_lambda=0.01, rebalance_l1_threshold=_ANY_DRIFT)
+    ).run(_matrix(), "equal_weight")
     assert costly.equity[-1] < free.equity[-1]
 
 

@@ -135,6 +135,16 @@ def test_event_overrides_run_date_and_run_id(
     assert metadata.run_id == "run-x"
 
 
+def test_mixed_is_an_artifact_label_and_never_an_event_source(
+    make_strategy_config: Callable[..., StrategyConfig],
+) -> None:
+    clock = _FixedClock(datetime(2024, 1, 2, 22, 0, tzinfo=UTC))
+    service = _RecordingService(_result())
+    deps = _deps(service, _FakeCalendar(True), clock, make_strategy_config())
+    with pytest.raises(ConfigurationError, match="mixed"):
+        run_ingestion({"source": "mixed"}, deps)
+
+
 def test_invalid_run_date_is_rejected(
     make_strategy_config: Callable[..., StrategyConfig],
 ) -> None:

@@ -143,12 +143,6 @@ def build_dependencies() -> ExecutorDependencies:
         raise ConfigurationError("missing environment variable: STATE_TABLE")
     state = DynamoExecutionState(table_name.strip(), region_name=runtime.aws_region)
     broker = _build_broker(runtime)
-    service = RebalanceService(
-        state=state,
-        broker=broker,
-        config=config,
-        clock=SystemClock(),
-    )
     topic_arn = os.environ.get(_NOTIFICATIONS_TOPIC_ENV, "")
     notifier = (
         SnsResultNotifier(
@@ -157,6 +151,15 @@ def build_dependencies() -> ExecutorDependencies:
         )
         if topic_arn.strip()
         else None
+    )
+    # The service announces rejected and failed attempts itself (it knows
+    # whether the proposal reached EXECUTING); the handler announces results.
+    service = RebalanceService(
+        state=state,
+        broker=broker,
+        config=config,
+        clock=SystemClock(),
+        notifier=notifier,
     )
     return ExecutorDependencies(service=service, config=config, notifier=notifier)
 

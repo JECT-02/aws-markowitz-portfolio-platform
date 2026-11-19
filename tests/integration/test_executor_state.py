@@ -19,6 +19,7 @@ from executor.core.state import DynamoExecutionState
 TABLE_NAME = "portfolio-state"
 NOW = datetime(2026, 11, 13, 21, 0, 0, tzinfo=UTC)
 PROPOSAL_ID = "2026-11-13-run-abc"
+KEY = "idem-key-1"
 
 
 def _put_proposal(client: Any, status: str = "PENDING") -> None:
@@ -160,7 +161,19 @@ class TestWriteReconciledState:
         )["Item"]
         assert float(item["weights"]["M"]["SPY"]["N"]) == pytest.approx(0.6)
         assert item["account_value"]["N"] == "10000.000000000000"
-        assert item["reconciled_at"]["S"] == NOW.isoformat()
+        assert item["reconciled_at"]["S"] == NOW.isoformat(timespec="microseconds")
+
+    def test_an_older_reconciliation_never_overwrites_a_newer_one(self, state_table) -> None:
+        """AGENTS.md section 7.2: a late, older write must not roll the state back."""
+        newer = NOW + timedelta(minutes=5)
+        _state().write_reconciled_state({"SPY": 0.6}, 10_000.0, newer)
+        _state().write_reconciled_state({"SPY": 0.1}, 10_000.0, NOW)
+        item = state_table.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "STATE"}, "sk": {"S": "CURRENT"}},
+        )["Item"]
+        assert float(item["weights"]["M"]["SPY"]["N"]) == pytest.approx(0.6)
+        assert item["reconciled_at"]["S"] == newer.isoformat(timespec="microseconds")
 
     def test_rejects_weights_above_the_account_equity(self, state_table) -> None:
         with pytest.raises(StorageError, match="account equity"):
@@ -386,3 +399,78 @@ class TestMalformedItems:
         )
         with pytest.raises(StorageError, match="invalid"):
             _state().claim_idempotency("key-1", "p", NOW)
+
+
+class TestUnresolvedClaims:
+    def test_an_unresolved_claim_is_taken_over_once_and_keeps_its_orders(self, state_table) -> None:
+        state = _state()
+        state.claim_idempotency(KEY, PROPOSAL_ID, NOW)
+        state.write_idempotency_result(
+            KEY,
+            _result(ProposalStatus.UNRESOLVED, error="deadline reached"),
+            NOW,
+        )
+
+        first = state.claim_idempotency(KEY, PROPOSAL_ID, NOW + timedelta(minutes=1))
+        second = state.claim_idempotency(KEY, PROPOSAL_ID, NOW + timedelta(minutes=2))
+
+        assert first.fresh is True
+        assert first.result is not None
+        assert first.result.status is ProposalStatus.UNRESOLVED
+        # A concurrent retry that loses the conditional update must not resume.
+        assert second.fresh is False
+        item = state_table.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "IDEMPOTENCY"}, "sk": {"S": KEY}},
+        )["Item"]
+        assert item["status"]["S"] == "EXECUTING"
+
+    def test_an_unresolved_claim_for_another_proposal_is_not_resumed(self, state_table) -> None:
+        state = _state()
+        state.claim_idempotency(KEY, PROPOSAL_ID, NOW)
+        state.write_idempotency_result(
+            KEY,
+            _result(ProposalStatus.UNRESOLVED, error="deadline reached"),
+            NOW,
+        )
+
+        other = state.claim_idempotency(KEY, "another-proposal", NOW + timedelta(minutes=1))
+
+        assert other.fresh is False
+        assert other.proposal_id == PROPOSAL_ID
+
+    def test_a_final_claim_is_never_reclaimed(self, state_table) -> None:
+        state = _state()
+        state.claim_idempotency(KEY, PROPOSAL_ID, NOW)
+        state.write_idempotency_result(KEY, _result(ProposalStatus.EXECUTED), NOW)
+
+        again = state.claim_idempotency(KEY, PROPOSAL_ID, NOW + timedelta(minutes=1))
+
+        assert again.fresh is False
+        assert again.result is not None
+        assert again.result.status is ProposalStatus.EXECUTED
+
+
+class TestProposalTransitions:
+    def test_an_unresolved_proposal_can_be_resumed(self, state_table) -> None:
+        _put_proposal(state_table)
+        state = _state()
+        state.write_execution_result(
+            PROPOSAL_ID, _result(ProposalStatus.UNRESOLVED, error="x"), NOW
+        )
+
+        state.transition_to_executing(PROPOSAL_ID)
+
+        item = state_table.get_item(
+            TableName=TABLE_NAME,
+            Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
+        )["Item"]
+        assert item["status"]["S"] == "EXECUTING"
+
+    def test_a_final_proposal_cannot_be_executed_again(self, state_table) -> None:
+        _put_proposal(state_table)
+        state = _state()
+        state.write_execution_result(PROPOSAL_ID, _result(ProposalStatus.EXECUTED), NOW)
+
+        with pytest.raises(StorageError, match="not PENDING"):
+            state.transition_to_executing(PROPOSAL_ID)

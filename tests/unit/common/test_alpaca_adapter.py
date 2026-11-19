@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from alpaca.common.exceptions import APIError
 from alpaca.data.enums import DataFeed
+from alpaca.data.models.bars import BarSet
 from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
 
 from common.adapters.alpaca import AlpacaPaperBroker, _snapshot
@@ -249,44 +251,81 @@ def test_other_lookup_errors_still_raise_broker_error() -> None:
         _broker(trading=_BrokenClient()).get_order_status("oid")
 
 
+def _bar_set(symbol: str, bars: list[tuple[str, float]]) -> BarSet:
+    """Build a real alpaca-py BarSet from API-shaped bar payloads (mistakes.md QA-004)."""
+    raw = {
+        symbol: [
+            {
+                "t": stamp,
+                "o": close,
+                "h": close,
+                "l": close,
+                "c": close,
+                "v": 1,
+                "n": 1,
+                "vw": close,
+            }
+            for stamp, close in bars
+        ]
+    }
+    return BarSet(raw_data=raw)
+
+
+class _BarsDataClient:
+    def __init__(self, bar_set: BarSet) -> None:
+        self._bar_set = bar_set
+        self.requests: list[Any] = []
+
+    def get_stock_bars(self, request: Any) -> BarSet:
+        self.requests.append(request)
+        return self._bar_set
+
+
 def test_get_adjusted_close_returns_the_requested_day_close() -> None:
     from alpaca.data.enums import Adjustment
 
-    class _BarsDataClient:
-        def __init__(self) -> None:
-            self.requests: list[SimpleNamespace] = []
-
-        def get_stock_bars(self, request: SimpleNamespace) -> dict[str, SimpleNamespace]:
-            self.requests.append(request)
-            return {
-                "SPY": SimpleNamespace(
-                    bars=[
-                        SimpleNamespace(date=datetime(2026, 11, 12, tzinfo=UTC), close=100.0),
-                        SimpleNamespace(date=datetime(2026, 11, 13, tzinfo=UTC), close=50.5),
-                    ]
-                )
-            }
-
-    data = _BarsDataClient()
+    bars = _bar_set(
+        "SPY",
+        [("2026-11-12T05:00:00Z", 100.0), ("2026-11-13T05:00:00Z", 50.5)],
+    )
+    data = _BarsDataClient(bars)
     price = _broker(data=data).get_adjusted_close("SPY", date(2026, 11, 13))
     assert price == pytest.approx(50.5)
     assert data.requests[0].adjustment is Adjustment.ALL
     assert data.requests[0].start.date() == date(2026, 11, 13)
 
 
-def test_get_adjusted_close_fails_closed_without_a_bar() -> None:
-    class _EmptyDataClient:
-        def get_stock_bars(self, request: SimpleNamespace) -> dict[str, SimpleNamespace]:
-            return {"SPY": SimpleNamespace(bars=[])}
-
+def test_get_adjusted_close_fails_closed_when_the_day_has_no_bar() -> None:
+    bars = _bar_set("SPY", [("2026-11-12T05:00:00Z", 100.0)])
     with pytest.raises(BrokerError, match="no adjusted close"):
-        _broker(data=_EmptyDataClient()).get_adjusted_close("SPY", date(2026, 11, 13))
+        _broker(data=_BarsDataClient(bars)).get_adjusted_close("SPY", date(2026, 11, 13))
+
+
+def test_get_adjusted_close_fails_closed_for_a_symbol_without_bars() -> None:
+    empty = BarSet(raw_data={})
+    with pytest.raises(BrokerError, match="no adjusted close"):
+        _broker(data=_BarsDataClient(empty)).get_adjusted_close("SPY", date(2026, 11, 13))
 
 
 def test_get_adjusted_close_maps_api_errors() -> None:
     class _BrokenDataClient:
-        def get_stock_bars(self, request: SimpleNamespace) -> dict[str, SimpleNamespace]:
+        def get_stock_bars(self, request: SimpleNamespace) -> BarSet:
             raise APIError("bars down", 503)
 
     with pytest.raises(BrokerError, match="adjusted close request failed"):
         _broker(data=_BrokenDataClient()).get_adjusted_close("SPY", date(2026, 11, 13))
+
+
+@pytest.mark.parametrize("status", list(AlpacaOrderStatus), ids=lambda status: status.value)
+def test_every_alpaca_order_status_is_mapped_without_raising(status: AlpacaOrderStatus) -> None:
+    """mistakes.md QA-019: an enum member the adapter does not map breaks polling."""
+    snapshot = _snapshot(SimpleNamespace(status=status, filled_qty="0"), "id")
+    assert isinstance(snapshot.status, OrderStatus)
+
+
+def test_pending_review_keeps_polling_as_an_open_order() -> None:
+    snapshot = _snapshot(
+        SimpleNamespace(status=AlpacaOrderStatus.PENDING_REVIEW, filled_qty="0"),
+        "id",
+    )
+    assert snapshot.status is OrderStatus.UNKNOWN

@@ -1,4 +1,10 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_data "aws_region" {
+    defaults = {
+      name = "us-east-1"
+    }
+  }
+}
 
 variables {
   project                = "portfolio-markowitz-aws"
@@ -209,6 +215,17 @@ run "executor_iam_is_least_privilege" {
   }
 }
 
+run "executor_reads_only_the_current_alpaca_parameters" {
+  command = plan
+
+  assert {
+    condition = alltrue(flatten([
+      for st in jsondecode(aws_iam_role_policy.executor_permissions.policy).Statement : [for a in try(tolist(st.Action), [st.Action]) : a != "ssm:GetParameterHistory"]
+    ]))
+    error_message = "The executor must not read parameter history (superseded credentials)."
+  }
+}
+
 run "executor_paper_mode_is_forced" {
   command = plan
 
@@ -263,4 +280,15 @@ run "image_tag_must_be_an_immutable_digest" {
   }
 
   expect_failures = [var.image_tag]
+}
+
+run "cognito_hosted_ui_url_uses_the_regional_domain" {
+  command = plan
+
+  # The provider attribute is only the prefix; the hosted UI needs the
+  # ".auth.<region>.amazoncognito.com" host (mistakes.md QA-006).
+  assert {
+    condition     = output.cognito_hosted_ui_url == "https://portfolio-markowitz.auth.us-east-1.amazoncognito.com"
+    error_message = "The hosted UI URL must be https://<prefix>.auth.<region>.amazoncognito.com."
+  }
 }

@@ -87,6 +87,31 @@ def test_failed_results_include_the_error() -> None:
     assert message["error"] == "no order filled"
 
 
+def test_rejected_attempt_keeps_the_pending_status_in_the_message() -> None:
+    sns = _RecordingSns()
+    notifier = SnsResultNotifier(topic_arn=TOPIC_ARN, region_name="us-east-1", sns_client=sns)
+
+    notifier.notify_failure("p1", ProposalStatus.PENDING, "the market is closed")
+
+    published = sns.published[0]
+    assert json.loads(published["Message"]) == {
+        "proposal_id": "p1",
+        "status": "PENDING",
+        "error": "the market is closed",
+    }
+    # The proposal is still PENDING, so the subject must not say it failed.
+    assert published["Subject"] == "portfolio rebalance attempt rejected"
+
+
+def test_failed_attempt_is_announced_as_failed() -> None:
+    sns = _RecordingSns()
+    notifier = SnsResultNotifier(topic_arn=TOPIC_ARN, region_name="us-east-1", sns_client=sns)
+
+    notifier.notify_failure("p1", ProposalStatus.FAILED, "alpaca rejected order")
+
+    assert sns.published[0]["Subject"] == "portfolio rebalance FAILED"
+
+
 def test_publish_failure_raises_storage_error() -> None:
     notifier = SnsResultNotifier(
         topic_arn=TOPIC_ARN,

@@ -110,7 +110,12 @@ class SilverReturnsRepository:
         window_days: int,
         max_days: int | None = None,
     ) -> ReturnsMatrix:
-        """Load aligned silver returns with at least window_days of history."""
+        """Load aligned silver returns with at least window_days of history.
+
+        The window ends at the newest silver partition: the daily run includes
+        the run date's own return (ADR 0002 accepts this deviation from
+        AGENTS.md section 5.1).
+        """
         if not symbols:
             raise DataValidationError("at least one symbol is required")
         if window_days < 2:
@@ -121,16 +126,7 @@ class SilverReturnsRepository:
         keys = self._storage.list_keys(self._silver_bucket, "year=")
         if not keys:
             raise DataValidationError("no silver partitions available")
-        frames: list[pd.DataFrame] = []
-        sources: set[str] = set()
-        seen_dates: set[object] = set()
-        for key in reversed(keys):
-            frame, source = self._read_partition(key)
-            frames.append(frame)
-            sources.add(source)
-            seen_dates.update(frame["date"].tolist())
-            if len(seen_dates) >= needed:
-                break
+        frames, sources = self._read_newest_partitions(keys, needed)
         combined = pd.concat(frames, ignore_index=True)
         duplicates = combined.duplicated(subset=["date", "symbol"])
         if bool(duplicates.any()):
@@ -169,16 +165,23 @@ class SilverReturnsRepository:
         self,
         keys: list[str],
         needed: int,
-    ) -> list[pd.DataFrame]:
+    ) -> tuple[list[pd.DataFrame], set[str]]:
+        """Read partitions newest first until ``needed`` distinct dates are seen.
+
+        Postcondition: returns the frames read and the sources recorded in
+        their metadata (AGENTS.md section 7.3 attribution).
+        """
         frames: list[pd.DataFrame] = []
+        sources: set[str] = set()
         seen_dates: set[object] = set()
         for key in reversed(keys):
-            frame, _source = self._read_partition(key)
+            frame, source = self._read_partition(key)
             frames.append(frame)
+            sources.add(source)
             seen_dates.update(frame["date"].tolist())
             if len(seen_dates) >= needed:
                 break
-        return frames
+        return frames, sources
 
     def _read_partition(self, key: str) -> tuple[pd.DataFrame, str]:
         table = self._storage.read_parquet(self._silver_bucket, key)

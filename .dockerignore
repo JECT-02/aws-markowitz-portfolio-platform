@@ -1,0 +1,25 @@
+# Keep secrets, local environments and infra state out of the build context
+# (AGENTS.md section 12). The Dockerfiles only COPY src/, config/ and
+# build/requirements.lock.txt, so everything else is excluded.
+.env
+.env.*
+.git
+.github
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.hypothesis
+.coverage
+**/__pycache__
+**/*.py[cod]
+docs
+infra
+notebooks
+tests
+tools
+web
+**/*.tfstate
+**/*.tfstate.backup
+**/.terraform
+**/tfplan

@@ -424,9 +424,11 @@ output "web_client_id" {
   value       = aws_cognito_user_pool_client.spa.id
 }
 
-output "cognito_domain" {
-  description = "Cognito hosted UI domain."
-  value       = aws_cognito_user_pool_domain.spa.domain
+# The provider's `domain` attribute is only the prefix; the hosted UI endpoint
+# is "<prefix>.auth.<region>.amazoncognito.com" (AWS Cognito domain format).
+output "cognito_hosted_ui_url" {
+  description = "HTTPS base URL of the Cognito hosted UI (used by the SPA and the Looker connector)."
+  value       = "https://${aws_cognito_user_pool_domain.spa.domain}.auth.${data.aws_region.current.name}.amazoncognito.com"
 }
 
 output "looker_connector_client_id" {
