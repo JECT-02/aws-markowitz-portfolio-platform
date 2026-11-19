@@ -14,8 +14,9 @@ mock_provider "aws" {
 }
 
 variables {
-  project = "portfolio-markowitz-aws"
-  env     = "dev"
+  project               = "portfolio-markowitz-aws"
+  env                   = "dev"
+  cognito_domain_prefix = "portfolio-markowitz-dev"
   image_digests = {
     reader   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
     executor = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -317,7 +318,19 @@ run "cognito_hosted_ui_url_uses_the_regional_domain" {
   # The provider attribute is only the prefix; the hosted UI needs the
   # ".auth.<region>.amazoncognito.com" host (mistakes.md QA-006).
   assert {
-    condition     = output.cognito_hosted_ui_url == "https://portfolio-markowitz.auth.us-east-1.amazoncognito.com"
+    condition     = output.cognito_hosted_ui_url == "https://portfolio-markowitz-dev.auth.us-east-1.amazoncognito.com"
     error_message = "The hosted UI URL must be https://<prefix>.auth.<region>.amazoncognito.com."
   }
+}
+
+run "cognito_domain_prefix_must_be_a_valid_domain_label" {
+  command = plan
+
+  # QA-027: the prefix is unique per region and has no default, so an invalid
+  # value must stop the plan before Cognito tries to create the domain.
+  variables {
+    cognito_domain_prefix = "Portfolio_Markowitz"
+  }
+
+  expect_failures = [var.cognito_domain_prefix]
 }

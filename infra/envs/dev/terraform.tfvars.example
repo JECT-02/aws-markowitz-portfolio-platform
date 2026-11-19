@@ -1,0 +1,19 @@
+# Shapes of the two required variables of infra/envs/dev (QA-005, QA-027).
+# Copy them into terraform.tfvars (non-secret values only, AGENTS.md 11.1) or
+# export the same names with the TF_VAR_ prefix before plan/apply. The values
+# here are placeholders: real digests are published by `make build-images` and
+# the Cognito prefix must be free in the region.
+#
+# env = "dev"
+#
+# image_digests = {
+#   ingest    = "sha256:<64 hex>"
+#   clean     = "sha256:<64 hex>"
+#   optimizer = "sha256:<64 hex>"
+#   monitor   = "sha256:<64 hex>"
+#   backtest  = "sha256:<64 hex>"
+#   reader    = "sha256:<64 hex>"
+#   executor  = "sha256:<64 hex>"
+# }
+#
+# cognito_domain_prefix = "portfolio-markowitz-dev-<your-suffix>"
