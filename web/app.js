@@ -1,5 +1,6 @@
 const STORAGE_KEYS = {
   verifier: "spa_code_verifier",
+  oauthState: "spa_oauth_state",
   accessToken: "spa_access_token",
   refreshToken: "spa_refresh_token",
 };
@@ -27,6 +28,15 @@ function formatPercent(value) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+// Optional metrics (Sortino, Calmar) are null when undefined for the period;
+// null must render as "n/a", never reach toFixed (mistakes.md QA-009).
+function formatNumber(value, digits = 4) {
+  if (value === null || value === undefined) {
+    return "n/a";
+  }
+  return Number(value).toFixed(digits);
+}
+
 function formatDateTime(value) {
   if (!value) {
     return "n/a";
@@ -52,7 +62,11 @@ async function sha256Base64Url(text) {
 async function startLogin() {
   const config = window.SPA_CONFIG;
   const verifier = randomVerifier();
+  const state = randomVerifier();
   sessionStorage.setItem(STORAGE_KEYS.verifier, verifier);
+  // The OAuth state parameter defends the redirect against login CSRF; PKCE
+  // alone does not cover it (mistakes.md QA-031).
+  sessionStorage.setItem(STORAGE_KEYS.oauthState, state);
   const challenge = await sha256Base64Url(verifier);
   const redirectUri = window.location.origin;
   const params = new URLSearchParams({
@@ -60,14 +74,20 @@ async function startLogin() {
     client_id: config.clientId,
     redirect_uri: redirectUri,
     scope: "openid email profile",
+    state: state,
     code_challenge: challenge,
     code_challenge_method: "S256",
   });
   window.location.assign(`${config.cognitoDomain}/oauth2/authorize?${params}`);
 }
 
-async function exchangeCode(code) {
+async function exchangeCode(code, returnedState) {
   const config = window.SPA_CONFIG;
+  const expectedState = sessionStorage.getItem(STORAGE_KEYS.oauthState);
+  sessionStorage.removeItem(STORAGE_KEYS.oauthState);
+  if (!expectedState || expectedState !== returnedState) {
+    throw new Error("oauth state mismatch");
+  }
   const verifier = sessionStorage.getItem(STORAGE_KEYS.verifier);
   if (!verifier) {
     throw new Error("missing code verifier");
@@ -236,7 +256,7 @@ function renderMetrics(metrics) {
     row.appendChild(cell);
     for (const [field] of columns) {
       const td = document.createElement("td");
-      td.textContent = metrics[name][field] === undefined ? "n/a" : metrics[name][field].toFixed(4);
+      td.textContent = formatNumber(metrics[name][field]);
       row.appendChild(td);
     }
     table.appendChild(row);
@@ -280,10 +300,62 @@ function renderMonitor(snapshot) {
   ]);
 }
 
-function renderBacktest(outcome) {
-  document.getElementById("backtest").hidden = false;
-  document.getElementById("backtest-summary").textContent =
-    outcome.notFound ? outcome.message : "Backtest results available.";
+function renderBacktest(report) {
+  const section = document.getElementById("backtest");
+  section.hidden = false;
+  if (report.notFound) {
+    document.getElementById("backtest-summary").textContent =
+      report.message || "No backtest report is available yet.";
+    return;
+  }
+  const selected = report.selected;
+  summarize(document.getElementById("backtest-summary"), [
+    ["Run date", report.metadata.run_date],
+    ["Generated", formatDateTime(report.generated_at)],
+    ["Gamma", formatNumber(selected.gamma)],
+    ["Transaction cost lambda", formatNumber(selected.transaction_cost_lambda)],
+    ["Shrinkage alpha", formatNumber(selected.alpha)],
+    ["Window", `${selected.window_days} days`],
+    ["Validation Sharpe", formatNumber(selected.validation_sharpe)],
+  ]);
+  renderBacktestComparison(report.comparison);
+}
+
+function renderBacktestComparison(rows) {
+  const container = document.getElementById("backtest-comparison");
+  const headers = [
+    "Allocation",
+    "In-sample Sharpe",
+    "Out-of-sample Sharpe",
+    "Out-of-sample annualized return",
+    "Out-of-sample max drawdown",
+  ];
+  const table = document.createElement("table");
+  const headerRow = document.createElement("tr");
+  for (const label of headers) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headerRow.appendChild(th);
+  }
+  table.appendChild(headerRow);
+  for (const entry of rows) {
+    const row = document.createElement("tr");
+    const values = [
+      entry.mode,
+      formatNumber(entry.in_sample_sharpe),
+      formatNumber(entry.out_of_sample_sharpe),
+      formatPercent(entry.out_of_sample_annualized_return),
+      formatPercent(entry.out_of_sample_max_drawdown),
+    ];
+    for (const value of values) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      row.appendChild(td);
+    }
+    table.appendChild(row);
+  }
+  container.innerHTML = "";
+  container.appendChild(table);
 }
 
 function setSessionState(loggedIn) {
@@ -300,7 +372,7 @@ async function main() {
 
   if (code && !token) {
     try {
-      await exchangeCode(code);
+      await exchangeCode(code, params.get("state"));
       window.history.replaceState({}, "", window.location.pathname);
     } catch (error) {
       showError("Sign in failed. Please try again.");
@@ -330,9 +402,19 @@ async function main() {
       setSessionState(false);
       return;
     }
-    renderProposal(proposal);
-    renderMonitor(monitor);
-    renderBacktest(backtest);
+    // A 404 is an empty state (no run yet), not an outage: render the
+    // message instead of the generic "API is not available" error (QA-021).
+    if (proposal.notFound) {
+      showInfo(proposal.message || "No proposal is available yet.");
+    } else {
+      renderProposal(proposal);
+    }
+    if (!monitor.notFound) {
+      renderMonitor(monitor);
+    }
+    if (backtest !== null) {
+      renderBacktest(backtest);
+    }
   } catch (error) {
     showError("The API is not available right now.");
     console.log("api error", error.message);
