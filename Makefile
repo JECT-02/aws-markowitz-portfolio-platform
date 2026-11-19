@@ -38,10 +38,19 @@ test-infra:
 coverage:
 	uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
 
-coverage-core:
-	uv run pytest --cov=src/optimizer/core --cov=src/backtest/core --cov-report=term-missing --cov-fail-under=90
+# AGENTS.md §8.3 asks for 90% on the core/ of the modules that decide money or
+# data. coverage.py has a single global fail_under, so the threshold is applied
+# per module by tools/check_core_coverage.py over one run's JSON report;
+# adding a module here also adds it to that file's --cov scope.
+COVERAGE_CORE_MODULES := src/optimizer/core src/executor/core src/ingest/core src/backtest/core
+COVERAGE_CORE_REPORT := build/coverage-core.json
 
-check: format lint typecheck security test-unit test-property test-integration test-infra coverage tf-fmt tf-validate tf-lint
+coverage-core:
+	mkdir -p build
+	uv run pytest $(addprefix --cov=,$(COVERAGE_CORE_MODULES)) --cov-report=term-missing --cov-report=json:$(COVERAGE_CORE_REPORT)
+	uv run python tools/check_core_coverage.py $(COVERAGE_CORE_REPORT)
+
+check: format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core tf-fmt tf-validate tf-lint
 
 tf-fmt:
 	terraform fmt -check -recursive infra

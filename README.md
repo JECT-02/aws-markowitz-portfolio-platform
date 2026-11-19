@@ -56,6 +56,7 @@ Usa siempre `make` (los comandos son los del `Makefile`; no hay variantes):
 | Seguridad | `make security` |
 | Pruebas unit / property / integration / infra | `make test-unit` / `test-property` / `test-integration` / `test-infra` |
 | Cobertura (≥ 80 % global) | `make coverage` |
+| Cobertura de los `core/` críticos (≥ 90 % por módulo) | `make coverage-core` |
 | Terraform fmt / validate / lint | `make tf-fmt` / `make tf-validate` / `make tf-lint` |
 | Terraform plan (solo lectura) | `make tf-plan ENV=dev` |
 | Optimizador local | `make run-optimizer-local` |
@@ -71,7 +72,7 @@ src/             common/ (modelos Pydantic, almacenamiento, adaptadores, errores
                  ingest/ clean/ optimizer/ monitor/ reader/ executor/ backtest/
                  (la lógica vive en cada core/, los handlers solo orquestan)
 web/             SPA estática (Plotly.js)
-tools/           conector comunitario de Looker Studio (Apps Script)
+tools/           conector comunitario de Looker Studio (Apps Script) + check de cobertura por módulo
 tests/           unit/ property/ integration/ infra/ fixtures/
 docs/            plan de diseño, bitácoras por fase
 ```
