@@ -32,15 +32,16 @@ class _FakeClock:
 class _FakeRepository:
     def __init__(self, matrix: ReturnsMatrix) -> None:
         self.matrix = matrix
-        self.calls: list[tuple[list[str], int, int | None]] = []
+        self.calls: list[tuple[list[str], int, int | None, date | None]] = []
 
     def load(
         self,
         symbols: list[str],
         window_days: int,
         max_days: int | None = None,
+        run_date: date | None = None,
     ) -> ReturnsMatrix:
-        self.calls.append((symbols, window_days, max_days))
+        self.calls.append((symbols, window_days, max_days, run_date))
         return self.matrix
 
 
@@ -173,7 +174,7 @@ def test_backtest_loads_the_full_validation_history(gold: None) -> None:
     deps, repository = _deps(_matrix(), _FakeValidation(_result()))
     run_backtest({}, deps)  # type: ignore[arg-type]
     # window_days is not the longest validation window (252), the double of it is.
-    assert repository.calls == [(SYMBOLS, 504, 1000)]
+    assert repository.calls == [(SYMBOLS, 504, 1000, date(2026, 2, 9))]
 
 
 def test_backtest_writes_the_gold_report_from_the_clock(gold: None) -> None:

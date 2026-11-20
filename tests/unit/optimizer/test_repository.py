@@ -220,3 +220,41 @@ def test_collects_mixed_sources_across_partitions() -> None:
     )
     matrix = repository.load(["SPY"], window_days=2)
     assert matrix.sources == frozenset({"alpaca", "yfinance"})
+
+
+def test_a_rerun_ignores_partitions_newer_than_the_run_date() -> None:
+    """mistakes.md QA-013: a rerun of a past date must never read future returns."""
+    storage, repository = _repository()
+    storage.write_parquet("silver", "year=2024/month=01/returns.parquet", _table(_rows(5)))
+    # A later partition holds returns from days the rerun must not see.
+    storage.write_parquet(
+        "silver",
+        "year=2024/month=02/returns.parquet",
+        _table(
+            [
+                (date(2024, 2, 1) + timedelta(days=offset), symbol, 0.001)
+                for offset in range(3)
+                for symbol in ("SPY", "QQQ")
+            ]
+        ),
+    )
+    matrix = repository.load(["SPY", "QQQ"], window_days=5, run_date=date(2024, 1, 5))
+    assert matrix.dates[-1] == date(2024, 1, 5)
+    assert all(day <= date(2024, 1, 5) for day in matrix.dates)
+    assert matrix.n_observations == 5
+
+
+def test_the_daily_regime_keeps_the_run_date_own_return() -> None:
+    """ADR 0002: the daily window still includes the run date's return."""
+    storage, repository = _repository()
+    storage.write_parquet("silver", "year=2024/month=01/returns.parquet", _table(_rows(5)))
+    matrix = repository.load(["SPY", "QQQ"], window_days=5, run_date=date(2024, 1, 5))
+    assert matrix.dates == [date(2024, 1, 1) + timedelta(days=offset) for offset in range(5)]
+    assert matrix.dates[-1] == date(2024, 1, 5)
+
+
+def test_a_rerun_before_any_history_fails_closed() -> None:
+    storage, repository = _repository()
+    storage.write_parquet("silver", "year=2024/month=01/returns.parquet", _table(_rows(5)))
+    with pytest.raises(DataValidationError, match="on or before the run date"):
+        repository.load(["SPY", "QQQ"], window_days=5, run_date=date(2023, 12, 31))

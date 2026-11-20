@@ -84,7 +84,11 @@ class OptimizerService:
         actual_weights: Mapping[str, float] | None = None,
     ) -> Proposal:
         """Optimize the portfolio and persist the resulting proposal."""
-        matrix = self._repository.load(self._universe.tickers, self._strategy.window_days)
+        matrix = self._repository.load(
+            self._universe.tickers,
+            self._strategy.window_days,
+            run_date=metadata.run_date,
+        )
         if matrix.n_assets < MIN_ASSETS:
             raise InfeasibleError(
                 f"only {matrix.n_assets} assets have sufficient history; {MIN_ASSETS} required"

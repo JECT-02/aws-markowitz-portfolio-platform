@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Protocol
 
@@ -35,6 +36,7 @@ class BacktestData(Protocol):
         symbols: list[str],
         window_days: int,
         max_days: int | None = None,
+        run_date: date | None = None,
     ) -> ReturnsMatrix: ...
 
 
@@ -64,14 +66,18 @@ def run_backtest(
         max(deps.strategy.validation_windows) * 2,
         deps.strategy.window_days,
     )
+    run_date = resolve_run_date(event, deps.clock)
     matrix = deps.repository.load(
         deps.universe.tickers,
         window_days=required_history,
         max_days=deps.strategy.ingest_lookback_days,
+        # Inclusive cutoff (ADR 0002): a weekly rerun never reads silver
+        # partitions newer than the report's run date (mistakes.md QA-013).
+        run_date=run_date,
     )
     metadata = RunMetadata(
         run_id=resolve_run_id(event),
-        run_date=resolve_run_date(event, deps.clock),
+        run_date=run_date,
         code_version=deps.code_version,
         # The report is attributed to the source(s) actually recorded in the
         # consumed silver partitions, never to a hardcoded default (7.3).
