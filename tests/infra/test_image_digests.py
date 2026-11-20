@@ -71,7 +71,7 @@ def test_the_registry_module_owns_the_seven_repositories() -> None:
 
 
 def test_every_module_reads_its_urls_from_the_registry() -> None:
-    for path, key in (
+    for path, _key in (
         ("infra/modules/pipeline/main.tf", "each.key"),
         ("infra/modules/backtest/main.tf", '"backtest"'),
         ("infra/modules/api/main.tf", '"reader"'),
@@ -79,4 +79,6 @@ def test_every_module_reads_its_urls_from_the_registry() -> None:
     ):
         text = (ROOT / path).read_text(encoding="utf-8")
         assert "var.repository_urls" in text, f"{path} must read repository_urls"
-        assert 'contains(keys(var.repository_urls),' in text, f"{path} must fail closed on a missing url"
+        assert "contains(keys(var.repository_urls)," in text, (
+            f"{path} must fail closed on a missing url"
+        )
