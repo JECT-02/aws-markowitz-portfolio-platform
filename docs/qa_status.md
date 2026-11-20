@@ -60,7 +60,7 @@ ingest 98.44 %, backtest 95.50 %.
 1. `fix/qa-013-run-date-window` — QA-013.
 2. `fix/qa-026-base-image-digests` — QA-026 (los digests de la imagen base los aporta el humano).
 3. `docs/qa-023-client-order-id` — QA-023 (solo documentación y una prueba del formato).
-4. `fix/qa-014-proposal-prices` — bloqueada: cambia el esquema de DynamoDB y el executor.
+4. `fix/qa-014-proposal-prices` — cerrada en esta rama (opción a del audit: precios en DynamoDB + fallback del drift).
 
 ## Pasos del humano
 
