@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import io
 import json
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
 from botocore.exceptions import BotoCoreError, ClientError
-from mypy_boto3_s3.client import S3Client
 
 from common.errors import StorageError
+
+if TYPE_CHECKING:
+    # The boto3 stubs are a dev dependency: importing them at runtime broke
+    # every container image's build-time import check (uv export --no-dev
+    # does not ship them). With future annotations the type is only needed
+    # for the type checker.
+    from mypy_boto3_s3.client import S3Client
 
 _NOT_FOUND_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 
