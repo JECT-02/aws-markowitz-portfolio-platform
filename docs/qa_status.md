@@ -3,7 +3,7 @@
 Registro vivo de los 31 hallazgos de `mistakes.md`. Se actualiza en la misma rama que cierra cada hallazgo,
 de modo que el archivo refleje lo mergeado y no lo prometido.
 
-**Progreso:** 25 de 31 en `main` · 1 en rama sin mergear · 1 en curso · 3 pendientes · 1 que requiere decisión humana.
+**Progreso:** 31 de 31 (QA-014 en esta rama, pendiente de merge).
 
 | Leyenda | Significado |
 |---|---|
@@ -28,7 +28,7 @@ de modo que el archivo refleje lo mergeado y no lo prometido.
 | QA-011 | HIGH | Los fallos por excepción del executor no notificaban por SNS | ✅ main | PR #31 |
 | QA-012 | MEDIUM | Los benchmarks del backtest no aplicaban el umbral de rebalanceo | ✅ main | PR #31 |
 | QA-013 | MEDIUM | La carga de Silver ignoraba `run_date` (reruns con datos futuros) | ⏳ pendiente | rama `fix/qa-013-run-date-window` |
-| QA-014 | LOW | Contrato de precios de la propuesta muerto y sin fallback | 🧑 decisión humana | toca DynamoDB y el executor (§14.2) |
+| QA-014 | LOW | Contrato de precios de la propuesta muerto y sin fallback | 🚧 esta rama | el optimizador persiste los precios en el ítem de DynamoDB (`prices`) y el executor los usa como fallback del drift; aprobado por el humano |
 | QA-015 | MEDIUM | La reconciliación usaba precios anteriores a la ejecución | ✅ main | PR #31 |
 | QA-016 | MEDIUM | Un timeout con estado desconocido se cacheaba como `FAILED` | ✅ main | PR #31 |
 | QA-017 | MEDIUM | Timeout de 25 s de la Lambda del executor era ajustado | ✅ main | PR #34 |
@@ -60,7 +60,7 @@ ingest 98.44 %, backtest 95.50 %.
 1. `fix/qa-013-run-date-window` — QA-013.
 2. `fix/qa-026-base-image-digests` — QA-026 (los digests de la imagen base los aporta el humano).
 3. `docs/qa-023-client-order-id` — QA-023 (solo documentación y una prueba del formato).
-4. `fix/qa-014-proposal-prices` — bloqueada: cambia el esquema de DynamoDB y el executor.
+4. `fix/qa-014-proposal-prices` — cerrada en esta rama (opción a del audit: precios en DynamoDB + fallback del drift).
 
 ## Pasos del humano
 

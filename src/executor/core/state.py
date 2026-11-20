@@ -452,11 +452,17 @@ def _parse_proposal(proposal_id: str, item: dict[str, Any]) -> ProposalRecord:
         raise StorageError("proposal item is missing required attributes") from exc
     w_star = item.get("w_star")
     weights_raw = w_star.get("M") if isinstance(w_star, dict) else None
+    prices_raw = item.get("prices")
+    prices = (
+        _parse_number_map(prices_raw.get("M"), "proposal reference prices")
+        if isinstance(prices_raw, dict)
+        else {}
+    )
     return ProposalRecord(
         proposal_id=proposal_id,
         status=status,
         weights=_parse_number_map(weights_raw, "proposal weights"),
-        prices={},
+        prices=prices,
         created_at=created_at,
         expires_at=expires_at,
         run_date=date.fromisoformat(run_date_raw),

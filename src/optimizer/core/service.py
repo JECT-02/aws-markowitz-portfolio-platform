@@ -168,6 +168,7 @@ class OptimizerService:
             covariance_shrinkage=estimates.shrinkage,
             window_days=self._strategy.window_days,
             prices_ref=(f"{matrix.dates[0].isoformat()}..{matrix.dates[-1].isoformat()}"),
+            prices=dict(reference_prices),
             excluded=matrix.excluded,
             run_date=metadata.run_date,
         )

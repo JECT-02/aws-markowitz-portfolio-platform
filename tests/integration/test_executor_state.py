@@ -22,20 +22,26 @@ PROPOSAL_ID = "2026-11-13-run-abc"
 KEY = "idem-key-1"
 
 
-def _put_proposal(client: Any, status: str = "PENDING") -> None:
+def _put_proposal(
+    client: Any,
+    status: str = "PENDING",
+    prices: dict[str, float] | None = None,
+) -> None:
     created = NOW - timedelta(minutes=30)
-    client.put_item(
-        TableName=TABLE_NAME,
-        Item={
-            "pk": {"S": "PROPOSAL"},
-            "sk": {"S": PROPOSAL_ID},
-            "status": {"S": status},
-            "w_star": {"M": {"SPY": {"N": "0.6"}, "QQQ": {"N": "0.4"}}},
-            "created_at": {"S": created.isoformat()},
-            "expires_at": {"S": (created + timedelta(hours=24)).isoformat()},
-            "run_date": {"S": "2026-11-13"},
-        },
-    )
+    item: dict[str, Any] = {
+        "pk": {"S": "PROPOSAL"},
+        "sk": {"S": PROPOSAL_ID},
+        "status": {"S": status},
+        "w_star": {"M": {"SPY": {"N": "0.6"}, "QQQ": {"N": "0.4"}}},
+        "created_at": {"S": created.isoformat()},
+        "expires_at": {"S": (created + timedelta(hours=24)).isoformat()},
+        "run_date": {"S": "2026-11-13"},
+    }
+    if prices is not None:
+        item["prices"] = {
+            "M": {symbol: {"N": str(price)} for symbol, price in sorted(prices.items())}
+        }
+    client.put_item(TableName=TABLE_NAME, Item=item)
 
 
 def _result(
@@ -540,3 +546,20 @@ class TestStaleClaimTakeover:
         with pytest.raises(StorageError, match="not PENDING"):
             state.transition_to_executing(PROPOSAL_ID)
         state.transition_to_executing(PROPOSAL_ID, allow_executing=True)
+
+
+class TestProposalReferencePrices:
+    def test_read_proposal_parses_the_stored_reference_prices(self, state_table) -> None:
+        """mistakes.md QA-014: the executor reads the approved prices, not an empty map."""
+        _put_proposal(state_table, prices={"SPY": 612.5, "QQQ": 198.25})
+        record = _state().read_proposal(PROPOSAL_ID)
+
+        assert record is not None
+        assert record.prices == {"SPY": 612.5, "QQQ": 198.25}
+
+    def test_read_proposal_keeps_compatibility_without_prices(self, state_table) -> None:
+        _put_proposal(state_table)
+        record = _state().read_proposal(PROPOSAL_ID)
+
+        assert record is not None
+        assert record.prices == {}

@@ -84,6 +84,12 @@ class DynamoPortfolioState:
             "run_id": {"S": proposal.metadata.run_id},
             "code_version": {"S": proposal.metadata.code_version},
             "prices_ref": {"S": proposal.prices_ref},
+            # Reference prices the proposal was approved against (QA-014):
+            # the executor uses them as the drift fallback and audits the
+            # execution against exactly these numbers.
+            "prices": {
+                "M": {symbol: _number(price) for symbol, price in sorted(proposal.prices.items())}
+            },
             "drift_l1": _number(proposal.drift_l1),
             "rebalance_required": {"BOOL": proposal.rebalance_required},
         }

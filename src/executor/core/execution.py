@@ -8,6 +8,7 @@ from typing import Protocol
 from common.clock import Clock
 from common.config import ExecutorConfig
 from common.errors import (
+    BrokerError,
     IdempotencyConflict,
     MarketClosed,
     NotFoundError,
@@ -184,10 +185,23 @@ class RebalanceService:
         # adjustment basis in effect today. Comparing against the prices
         # stored at proposal time would misread splits and dividend
         # rebasings as drift and reject valid proposals.
-        reference = {
-            symbol: self._broker.get_adjusted_close(symbol, record.run_date)
-            for symbol in sorted(current_prices)
-        }
+        reference: dict[str, float] = {}
+        for symbol in sorted(current_prices):
+            try:
+                reference[symbol] = self._broker.get_adjusted_close(symbol, record.run_date)
+            except BrokerError:
+                # QA-014 fallback: when the daily bar is not available yet
+                # (not consolidated, or the data API is degraded), the exact
+                # prices the proposal was approved with stand in. They share
+                # the proposal's own adjustment basis, so a corporate action
+                # between proposal and execution still rejects as drift.
+                if symbol not in record.prices:
+                    raise
+                reference[symbol] = record.prices[symbol]
+                logger.warning(
+                    "adjusted close unavailable; using the proposal's reference price",
+                    extra={"proposal_id": record.proposal_id, "symbol": symbol},
+                )
         try:
             check_price_drift(reference, current_prices, self._config.max_price_drift_pct)
         except PriceDriftExceeded:
