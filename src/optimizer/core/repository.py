@@ -44,6 +44,7 @@ class ReturnsRepository(Protocol):
         symbols: list[str],
         window_days: int,
         max_days: int | None = None,
+        run_date: date | None = None,
     ) -> ReturnsMatrix: ...
 
 
@@ -109,12 +110,18 @@ class SilverReturnsRepository:
         symbols: list[str],
         window_days: int,
         max_days: int | None = None,
+        run_date: date | None = None,
     ) -> ReturnsMatrix:
         """Load aligned silver returns with at least window_days of history.
 
         The window ends at the newest silver partition: the daily run includes
         the run date's own return (ADR 0002 accepts this deviation from
         AGENTS.md section 5.1).
+
+        With ``run_date`` set, every observation is dated on or before it, so
+        a rerun of a past date can never read later partitions (mistakes.md
+        QA-013); the cutoff is inclusive because the daily regime keeps the
+        run date's own return.
         """
         if not symbols:
             raise DataValidationError("at least one symbol is required")
@@ -126,7 +133,9 @@ class SilverReturnsRepository:
         keys = self._storage.list_keys(self._silver_bucket, "year=")
         if not keys:
             raise DataValidationError("no silver partitions available")
-        frames, sources = self._read_newest_partitions(keys, needed)
+        frames, sources = self._read_newest_partitions(keys, needed, run_date)
+        if not frames:
+            raise DataValidationError("no silver returns available on or before the run date")
         combined = pd.concat(frames, ignore_index=True)
         duplicates = combined.duplicated(subset=["date", "symbol"])
         if bool(duplicates.any()):
@@ -165,17 +174,23 @@ class SilverReturnsRepository:
         self,
         keys: list[str],
         needed: int,
+        run_date: date | None,
     ) -> tuple[list[pd.DataFrame], set[str]]:
         """Read partitions newest first until ``needed`` distinct dates are seen.
 
-        Postcondition: returns the frames read and the sources recorded in
-        their metadata (AGENTS.md section 7.3 attribution).
+        Postconditions: only rows dated on or before ``run_date`` are kept
+        (when given) and only partitions that contributed rows are reported
+        as sources (AGENTS.md section 7.3 attribution).
         """
         frames: list[pd.DataFrame] = []
         sources: set[str] = set()
         seen_dates: set[object] = set()
         for key in reversed(keys):
             frame, source = self._read_partition(key)
+            if run_date is not None:
+                frame = frame.loc[pd.to_datetime(frame["date"]) <= pd.Timestamp(run_date)]
+            if frame.empty:
+                continue
             frames.append(frame)
             sources.add(source)
             seen_dates.update(frame["date"].tolist())

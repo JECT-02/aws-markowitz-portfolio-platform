@@ -26,10 +26,15 @@ class _Clock:
 class _Repository:
     def __init__(self, matrix: ReturnsMatrix) -> None:
         self._matrix = matrix
-        self.calls: list[tuple[list[str], int]] = []
+        self.calls: list[tuple[list[str], int, date | None]] = []
 
-    def load(self, symbols: list[str], window_days: int) -> ReturnsMatrix:
-        self.calls.append((symbols, window_days))
+    def load(
+        self,
+        symbols: list[str],
+        window_days: int,
+        run_date: date | None = None,
+    ) -> ReturnsMatrix:
+        self.calls.append((symbols, window_days, run_date))
         return self._matrix
 
     def raise_load_error(self, message: str) -> None:
@@ -156,7 +161,7 @@ def _metadata() -> RunMetadata:
 def test_service_writes_proposal_and_latest() -> None:
     service, repository, storage, strategy = _service()
     proposal = service.run(_metadata())
-    assert repository.calls == [(SYMBOLS, strategy.window_days)]
+    assert repository.calls == [(SYMBOLS, strategy.window_days, date(2025, 1, 2))]
     assert proposal.proposal_id == "2025-01-02-run-1"
     assert proposal.prices_ref == "2024-09-01..2024-09-01"
     assert proposal.status in {"PENDING", "NO_REBALANCE"}
