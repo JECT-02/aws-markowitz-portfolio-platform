@@ -1,11 +1,4 @@
 mock_provider "aws" {
-  mock_resource "aws_ecr_repository" {
-    defaults = {
-      # The URL is computed at apply time; pinning it lets the image_uri
-      # assertions run at plan time (QA-002/QA-003).
-      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
-    }
-  }
   mock_data "aws_region" {
     defaults = {
       name = "us-east-1"
@@ -20,6 +13,10 @@ variables {
   image_digests = {
     reader   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
     executor = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
+  repository_urls = {
+    reader   = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-reader-dev"
+    executor = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-executor-dev"
   }
   code_version           = "abc1234"
   spa_allowed_origin     = "https://spa.example.com"

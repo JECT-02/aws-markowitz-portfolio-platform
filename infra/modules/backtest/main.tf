@@ -140,38 +140,13 @@ variable "dlq_arn" {
   description = "Backtest dead-letter queue ARN."
 }
 
-# --- ECR repository ------------------------------------------------------------
+# The ECR repositories live in the registry module/root (infra/envs/registry,
+# ADR 0004): the images must be published before the Lambda is created, and the
+# repository must exist before the image is pushed.
 
-resource "aws_ecr_repository" "backtest" {
-  name                 = "${var.project}-backtest-${var.env}"
-  image_tag_mutability = "IMMUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.tags
-}
-
-resource "aws_ecr_lifecycle_policy" "backtest" {
-  repository = aws_ecr_repository.backtest.name
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Expire untagged images after 14 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 14
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
+variable "repository_urls" {
+  type        = map(string)
+  description = "ECR repository URL per image; the backtest Lambda reads repository_urls[\"backtest\"]."
 }
 
 # --- Lambda execution role (least privilege) -----------------------------------
@@ -245,9 +220,13 @@ resource "aws_lambda_function" "backtest" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.backtest.repository_url}@${lookup(var.image_digests, "backtest", "")}"
+  image_uri     = "${var.repository_urls["backtest"]}@${lookup(var.image_digests, "backtest", "")}"
 
   lifecycle {
+    precondition {
+      condition     = contains(keys(var.repository_urls), "backtest")
+      error_message = "repository_urls is missing the \"backtest\" image; apply infra/envs/registry first."
+    }
     precondition {
       condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, "backtest", "")))
       error_message = "image_digests[\"backtest\"] is missing or is not a sha256:<64 hex> digest: pass the Backtest image digest in TF_VAR_image_digests."
@@ -379,7 +358,7 @@ output "function_name" {
 
 output "ecr_repository_uri" {
   description = "ECR repository URI for the backtest image."
-  value       = aws_ecr_repository.backtest.repository_url
+  value       = var.repository_urls["backtest"]
 }
 
 output "schedule_arn" {

@@ -72,37 +72,9 @@ resource "aws_cognito_user_group" "executors" {
   description  = "Users allowed to approve and execute rebalance proposals (AGENTS.md 6.1)."
 }
 
-resource "aws_ecr_repository" "executor" {
-  name                 = "${var.project}-executor-${var.env}"
-  image_tag_mutability = "IMMUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.tags
-}
-
-resource "aws_ecr_lifecycle_policy" "executor" {
-  repository = aws_ecr_repository.executor.name
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Expire untagged executor images after 14 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 14
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
-}
+# The executor's ECR repository lives in the registry module/root
+# (infra/envs/registry, ADR 0004): the image must be published before the
+# Lambda is created, and the repository must exist before the image is pushed.
 
 resource "aws_iam_role" "executor" {
   name = "${var.project}-${var.env}-executor-lambda"
@@ -195,9 +167,13 @@ resource "aws_lambda_function" "executor" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.executor.repository_url}@${lookup(var.image_digests, "executor", "")}"
+  image_uri     = "${var.repository_urls["executor"]}@${lookup(var.image_digests, "executor", "")}"
 
   lifecycle {
+    precondition {
+      condition     = contains(keys(var.repository_urls), "executor")
+      error_message = "repository_urls is missing the \"executor\" image; apply infra/envs/registry first."
+    }
     precondition {
       condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, "executor", "")))
       error_message = "image_digests[\"executor\"] is missing or is not a sha256:<64 hex> digest: pass the Executor image digest in TF_VAR_image_digests."
@@ -281,5 +257,5 @@ output "executor_function_name" {
 
 output "executor_ecr_repository_uri" {
   description = "Executor ECR repository URI."
-  value       = aws_ecr_repository.executor.repository_url
+  value       = var.repository_urls["executor"]
 }

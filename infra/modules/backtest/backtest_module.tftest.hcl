@@ -1,18 +1,13 @@
-mock_provider "aws" {
-  mock_resource "aws_ecr_repository" {
-    defaults = {
-      # The URL is computed at apply time; pinning it lets the image_uri
-      # assertions run at plan time (QA-002/QA-003).
-      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
-    }
-  }
-}
+mock_provider "aws" {}
 
 variables {
   project = "portfolio-markowitz-aws"
   env     = "dev"
   image_digests = {
     backtest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  }
+  repository_urls = {
+    backtest = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-backtest-dev"
   }
   code_version = "abc1234"
   # Same values as config/strategy.yaml; the variable validation rejects
@@ -90,19 +85,7 @@ run "log_group_has_bounded_retention" {
   }
 }
 
-run "ecr_is_immutable_with_scanning" {
-  command = plan
-
-  assert {
-    condition     = aws_ecr_repository.backtest.image_tag_mutability == "IMMUTABLE"
-    error_message = "The ECR repository must pin immutable tags."
-  }
-
-  assert {
-    condition     = aws_ecr_repository.backtest.image_scanning_configuration[0].scan_on_push
-    error_message = "Images must be scanned on push (AGENTS.md section 12)."
-  }
-}
+# The repositories themselves are pinned by infra/modules/registry tests.
 
 run "weekly_schedule_uses_saturday_ny_cron" {
   command = plan

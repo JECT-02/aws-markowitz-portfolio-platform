@@ -53,6 +53,13 @@ module "data" {
   alpaca_secret_key_parameter = var.alpaca_secret_key_parameter
 }
 
+module "registry" {
+  source = "../../modules/registry"
+
+  project = "portfolio-markowitz-aws"
+  env     = var.env
+}
+
 module "pipeline" {
   source = "../../modules/pipeline"
 
@@ -60,6 +67,8 @@ module "pipeline" {
   env           = var.env
   image_digests = var.image_digests
   code_version  = var.code_version
+
+  repository_urls = module.registry.repository_urls
 
   strategy = local.strategy_values
 
@@ -90,6 +99,8 @@ module "backtest" {
   image_digests = var.image_digests
   code_version  = var.code_version
 
+  repository_urls = module.registry.repository_urls
+
   strategy = local.strategy_values
 
   silver_bucket_name = module.data.silver_bucket_name
@@ -107,6 +118,8 @@ module "api" {
   env           = var.env
   image_digests = var.image_digests
   code_version  = var.code_version
+
+  repository_urls = module.registry.repository_urls
 
   cognito_domain_prefix = var.cognito_domain_prefix
   spa_allowed_origin    = var.spa_allowed_origin
@@ -243,6 +256,10 @@ output "pipeline_state_machine_arn" {
 
 output "pipeline_function_arns" {
   value = module.pipeline.function_arns
+}
+
+output "registry_repository_arns" {
+  value = module.registry.repository_arns
 }
 
 output "pipeline_ecr_repository_uris" {

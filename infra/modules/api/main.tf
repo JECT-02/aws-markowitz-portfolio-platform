@@ -202,36 +202,13 @@ resource "aws_cognito_user_pool_client" "looker_connector" {
 
 # --- Reader lambda ----------------------------------------------------------------
 
-resource "aws_ecr_repository" "reader" {
-  name                 = "${var.project}-reader-${var.env}"
-  image_tag_mutability = "IMMUTABLE"
+# The ECR repositories live in the registry module/root (infra/envs/registry,
+# ADR 0004): the images must be published before the Lambdas are created, and
+# the repositories must exist before the images are pushed.
 
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.tags
-}
-
-resource "aws_ecr_lifecycle_policy" "reader" {
-  repository = aws_ecr_repository.reader.name
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Expire untagged reader images after 14 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 14
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
+variable "repository_urls" {
+  type        = map(string)
+  description = "ECR repository URL per image; the module reads repository_urls[\"reader\"] and repository_urls[\"executor\"]."
 }
 
 data "aws_region" "current" {}
@@ -311,9 +288,13 @@ resource "aws_lambda_function" "reader" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.reader.repository_url}@${lookup(var.image_digests, "reader", "")}"
+  image_uri     = "${var.repository_urls["reader"]}@${lookup(var.image_digests, "reader", "")}"
 
   lifecycle {
+    precondition {
+      condition     = contains(keys(var.repository_urls), "reader")
+      error_message = "repository_urls is missing the \"reader\" image; apply infra/envs/registry first."
+    }
     precondition {
       condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, "reader", "")))
       error_message = "image_digests[\"reader\"] is missing or is not a sha256:<64 hex> digest: pass the Reader image digest in TF_VAR_image_digests."
@@ -463,5 +444,5 @@ output "reader_function_name" {
 
 output "reader_ecr_repository_uri" {
   description = "Reader ECR repository URI."
-  value       = aws_ecr_repository.reader.repository_url
+  value       = var.repository_urls["reader"]
 }

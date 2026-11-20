@@ -51,3 +51,32 @@ def test_the_environment_exports_one_digest_map_to_every_module() -> None:
     assert "optimizer_image_tag" not in text
     assert 'variable "image_digests"' in text
     assert "type        = map(string)" in text
+
+
+def test_no_function_module_creates_its_own_repositories() -> None:
+    """ADR 0004: the repositories live only in the registry module."""
+    for path in MODULES:
+        text = (ROOT / path).read_text(encoding="utf-8")
+        assert "aws_ecr_repository" not in text, f"{path} must not create repositories"
+
+
+def test_the_registry_module_owns_the_seven_repositories() -> None:
+    text = (INFRA / "modules" / "registry" / "main.tf").read_text(encoding="utf-8")
+    assert 'resource "aws_ecr_repository" "images"' in text
+    for image in ("ingest", "clean", "optimizer", "monitor", "backtest", "reader", "executor"):
+        assert image in text, f"the registry must cover the {image} image"
+    assert 'key          = "registry/terraform.tfstate"' in (
+        INFRA / "envs" / "registry" / "backend.tf"
+    ).read_text(encoding="utf-8")
+
+
+def test_every_module_reads_its_urls_from_the_registry() -> None:
+    for path, key in (
+        ("infra/modules/pipeline/main.tf", "each.key"),
+        ("infra/modules/backtest/main.tf", '"backtest"'),
+        ("infra/modules/api/main.tf", '"reader"'),
+        ("infra/modules/api/executor.tf", '"executor"'),
+    ):
+        text = (ROOT / path).read_text(encoding="utf-8")
+        assert "var.repository_urls" in text, f"{path} must read repository_urls"
+        assert 'contains(keys(var.repository_urls),' in text, f"{path} must fail closed on a missing url"
