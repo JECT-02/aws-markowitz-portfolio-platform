@@ -164,6 +164,8 @@ def test_service_writes_proposal_and_latest() -> None:
     assert repository.calls == [(SYMBOLS, strategy.window_days, date(2025, 1, 2))]
     assert proposal.proposal_id == "2025-01-02-run-1"
     assert proposal.prices_ref == "2024-09-01..2024-09-01"
+    # QA-014: the proposal carries the exact prices it was approved against.
+    assert proposal.prices == {symbol: 100.0 for symbol in SYMBOLS}
     assert proposal.status in {"PENDING", "NO_REBALANCE"}
     assert proposal.baseline_source == "equal_weight_fallback"
     assert sum(proposal.weights.values()) == pytest.approx(1.0, abs=1e-6)

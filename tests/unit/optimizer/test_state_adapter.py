@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 import boto3
 import pytest
 from moto import mock_aws
+from pydantic import ValidationError
 
 from common.errors import DataValidationError
 from common.models import DataSource, RunMetadata
@@ -210,3 +211,26 @@ def test_non_finite_drift_is_rejected(state: DynamoPortfolioState) -> None:
 
 def test_proposal_identifier_is_deterministic() -> None:
     assert proposal_identifier(_metadata()) == "2025-02-03-run-1"
+
+
+def test_write_proposal_persists_the_reference_prices(state: DynamoPortfolioState) -> None:
+    """mistakes.md QA-014: the executor can audit the proposal's exact prices."""
+    proposal = _validated_with_prices({"SPY": 100.0, "QQQ": 50.5})
+    state.write_proposal(proposal)
+    item = state._client.get_item(
+        TableName=TABLE,
+        Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": "2025-02-03-run-1"}},
+    )["Item"]
+    assert float(item["prices"]["M"]["SPY"]["N"]) == pytest.approx(100.0)
+    assert float(item["prices"]["M"]["QQQ"]["N"]) == pytest.approx(50.5)
+
+
+def test_a_proposal_price_that_is_not_positive_is_rejected(state: DynamoPortfolioState) -> None:
+    with pytest.raises(ValidationError, match="finite and positive"):
+        _validated_with_prices({"SPY": 0.0})
+
+
+def _validated_with_prices(prices: dict[str, float]) -> Proposal:
+    # model_copy bypasses validators, so the update is revalidated explicitly.
+    copied = _proposal(_metadata()).model_copy(update={"prices": prices})
+    return Proposal.model_validate(copied.model_dump())

@@ -68,28 +68,34 @@ def _executor_config() -> ExecutorConfig:
     )
 
 
-def _put_proposal(client: Any, status: str = "PENDING") -> None:
+def _put_proposal(
+    client: Any,
+    status: str = "PENDING",
+    prices: dict[str, float] | None = None,
+) -> None:
     created = NOW - timedelta(minutes=30)
-    client.put_item(
-        TableName=TABLE_NAME,
-        Item={
-            "pk": {"S": "PROPOSAL"},
-            "sk": {"S": PROPOSAL_ID},
-            "status": {"S": status},
-            "w_star": {
-                "M": {
-                    "SPY": {"N": "0.2"},
-                    "QQQ": {"N": "0.2"},
-                    "IWM": {"N": "0.2"},
-                    "EFA": {"N": "0.2"},
-                    "TLT": {"N": "0.2"},
-                }
-            },
-            "created_at": {"S": created.isoformat()},
-            "expires_at": {"S": (created + timedelta(hours=24)).isoformat()},
-            "run_date": {"S": "2026-11-13"},
+    item: dict[str, Any] = {
+        "pk": {"S": "PROPOSAL"},
+        "sk": {"S": PROPOSAL_ID},
+        "status": {"S": status},
+        "w_star": {
+            "M": {
+                "SPY": {"N": "0.2"},
+                "QQQ": {"N": "0.2"},
+                "IWM": {"N": "0.2"},
+                "EFA": {"N": "0.2"},
+                "TLT": {"N": "0.2"},
+            }
         },
-    )
+        "created_at": {"S": created.isoformat()},
+        "expires_at": {"S": (created + timedelta(hours=24)).isoformat()},
+        "run_date": {"S": "2026-11-13"},
+    }
+    if prices is not None:
+        item["prices"] = {
+            "M": {symbol: {"N": str(price)} for symbol, price in sorted(prices.items())}
+        }
+    client.put_item(TableName=TABLE_NAME, Item=item)
 
 
 def _broker(**overrides: Any) -> SimulatedBroker:
@@ -681,3 +687,40 @@ class TestStaleClaimRecovery:
             Key={"pk": {"S": "PROPOSAL"}, "sk": {"S": PROPOSAL_ID}},
         )["Item"]
         assert proposal_item["status"]["S"] == "EXECUTED"
+
+
+class TestProposalPriceFallback:
+    """mistakes.md QA-014: the proposal's own prices are the drift fallback."""
+
+    def test_an_unavailable_bar_falls_back_to_the_stored_reference_prices(self, env) -> None:
+        client, s3 = env
+        _put_proposal(
+            client,
+            prices={"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+        )
+        broker = _broker(adjusted_closes={"QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0})
+        result = _service(broker).execute(PROPOSAL_ID, KEY)
+
+        assert result.status is ProposalStatus.EXECUTED
+
+    def test_the_fallback_still_rejects_drift(self, env) -> None:
+        client, s3 = env
+        _put_proposal(
+            client,
+            prices={"SPY": 100.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+        )
+        broker = _broker(
+            prices={"SPY": 200.0, "QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+            adjusted_closes={"QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0},
+        )
+        with pytest.raises(PriceDriftExceeded):
+            _service(broker).execute(PROPOSAL_ID, KEY)
+        assert broker.submitted == []
+
+    def test_without_stored_prices_an_unavailable_bar_fails_closed(self, env) -> None:
+        client, s3 = env
+        _put_proposal(client)
+        broker = _broker(adjusted_closes={"QQQ": 50.0, "IWM": 40.0, "EFA": 80.0, "TLT": 90.0})
+        with pytest.raises(BrokerError, match="adjusted close"):
+            _service(broker).execute(PROPOSAL_ID, KEY)
+        assert broker.submitted == []

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from common.models import RunMetadata
 
@@ -49,5 +50,18 @@ class Proposal(BaseModel):
     covariance_shrinkage: float
     window_days: int = Field(ge=2)
     prices_ref: str
+    # Reference prices the proposal was approved against (mistakes.md QA-014).
+    # Defaulted so gold artifacts written before this field keep validating;
+    # the executor uses them as the drift fallback when the re-fetched
+    # adjusted close is not available yet.
+    prices: dict[str, float] = Field(default_factory=dict)
     excluded: dict[str, str]
     run_date: date
+
+    @field_validator("prices")
+    @classmethod
+    def _validate_prices(cls, value: dict[str, float]) -> dict[str, float]:
+        for symbol, price in value.items():
+            if not math.isfinite(price) or price <= 0.0:
+                raise ValueError(f"reference price for {symbol} must be finite and positive")
+        return value
