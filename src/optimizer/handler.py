@@ -104,6 +104,7 @@ def build_dependencies() -> OptimizerDependencies:
     strategy = StrategyConfig.from_environment()
     storage = S3Storage(region_name=runtime.aws_region)
     clock = SystemClock()
+    state = _build_state(runtime)
     service = OptimizerService(
         repository=SilverReturnsRepository(storage, storage_settings.silver_bucket),
         storage=storage,
@@ -112,6 +113,7 @@ def build_dependencies() -> OptimizerDependencies:
         strategy=strategy,
         clock=clock,
         prices=BronzePricesRepository(storage, storage_settings.bronze_bucket),
+        proposal_status=state,
     )
     return OptimizerDependencies(
         service=service,
@@ -119,7 +121,7 @@ def build_dependencies() -> OptimizerDependencies:
         universe=universe,
         strategy=strategy,
         code_version=runtime.code_version,
-        state=_build_state(runtime),
+        state=state,
     )
 
 

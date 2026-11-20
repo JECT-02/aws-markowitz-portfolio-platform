@@ -32,6 +32,8 @@ class PortfolioState(Protocol):
 
     def write_proposal(self, proposal: Proposal) -> None: ...
 
+    def read_proposal_status(self, proposal_id: str) -> str | None: ...
+
     def write_failure(self, proposal_id: str, metadata: RunMetadata, reason: str) -> None: ...
 
 
@@ -86,6 +88,16 @@ class DynamoPortfolioState:
             "rebalance_required": {"BOOL": proposal.rebalance_required},
         }
         self._put_proposal_item(item, proposal.proposal_id)
+
+    def read_proposal_status(self, proposal_id: str) -> str | None:
+        """Return the stored status of a proposal, or None when it was never stored."""
+        item = self._get_item(PROPOSAL_PARTITION, proposal_id)
+        if item is None:
+            return None
+        status = item.get("status")
+        if not isinstance(status, Mapping) or not isinstance(status.get("S"), str):
+            raise DataValidationError("stored proposal status must be a string")
+        return str(status["S"])
 
     def write_failure(self, proposal_id: str, metadata: RunMetadata, reason: str) -> None:
         created_at = metadata.fetched_at.astimezone(UTC)

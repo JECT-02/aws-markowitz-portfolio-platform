@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
@@ -48,6 +49,12 @@ class BenchmarkAllocations:
         }
 
 
+class ProposalStatusReader(Protocol):
+    """Reads the execution status of a proposal from the state table."""
+
+    def read_proposal_status(self, proposal_id: str) -> str | None: ...
+
+
 class OptimizerService:
     """Runs the daily optimization and writes a proposal to the gold layer."""
 
@@ -60,6 +67,7 @@ class OptimizerService:
         strategy: StrategyConfig,
         clock: Clock,
         prices: PricesRepository,
+        proposal_status: ProposalStatusReader | None = None,
     ) -> None:
         self._repository = repository
         self._storage = storage
@@ -68,6 +76,7 @@ class OptimizerService:
         self._strategy = strategy
         self._clock = clock
         self._prices = prices
+        self._proposal_status = proposal_status
 
     def run(
         self,
@@ -171,9 +180,9 @@ class OptimizerService:
         return proposal
 
     def _write(self, proposal: Proposal, reference_prices: Mapping[str, float]) -> None:
-        # Run-partition artifacts are first-write-wins except that a rerun
-        # of the same PENDING proposal may correct a stale version (N-22);
-        # only the pointer refreshes unconditionally.
+        # The run-partition artifact is replaced only while the proposal it
+        # holds is unexecuted (see _write_correctable); the latest pointer
+        # refreshes unconditionally.
         payload = proposal.model_dump(mode="json")
         key = f"run_date={proposal.run_date.isoformat()}/proposal.json"
         self._write_correctable(self._gold_bucket, key, payload, proposal)
@@ -210,16 +219,40 @@ class OptimizerService:
                 extra={"key": key},
             )
             return
-        if (
-            existing.get("status") in {"PENDING", "NO_REBALANCE"}
-            and existing.get("proposal_id") == proposal.proposal_id
-        ):
+        if existing.get("status") not in {"PENDING", "NO_REBALANCE"}:
+            logger.warning(
+                "gold artifact holds a final proposal and stays untouched",
+                extra={"key": key},
+            )
+            return
+        previous_id = existing.get("proposal_id")
+        if previous_id == proposal.proposal_id:
+            # A rerun of the same proposal corrects its stale version (N-22).
             self._storage.write_json(bucket, key, payload)
             return
-        logger.warning(
-            "gold artifact holds a final proposal and stays untouched",
-            extra={"key": key},
-        )
+        # A same-day rerun has a new proposal id (it embeds the run id), so the
+        # dated artifact would stay stale forever. Replace the earlier proposal
+        # only if it was never executed. The artifact's own status cannot say
+        # so, because the executor records execution only in the state table,
+        # so that table decides; without it the artifact is kept (fail closed).
+        if self._proposal_status is None or not isinstance(previous_id, str):
+            logger.warning(
+                "cannot verify the earlier proposal; gold artifact stays untouched",
+                extra={"key": key, "previous_proposal_id": str(previous_id)},
+            )
+            return
+        previous_status = self._proposal_status.read_proposal_status(previous_id)
+        if previous_status not in {"PENDING", "NO_REBALANCE"}:
+            logger.warning(
+                "earlier proposal is final in the state table; gold artifact stays untouched",
+                extra={
+                    "key": key,
+                    "previous_proposal_id": previous_id,
+                    "previous_status": str(previous_status),
+                },
+            )
+            return
+        self._storage.write_json(bucket, key, payload)
 
 
 def _metrics(

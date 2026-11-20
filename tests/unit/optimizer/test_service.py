@@ -97,10 +97,19 @@ def _prices_for(symbols: list[str]) -> _Prices:
     return _Prices({symbol: 100.0 for symbol in symbols})
 
 
+class _Statuses:
+    def __init__(self, statuses: dict[str, str]) -> None:
+        self._statuses = statuses
+
+    def read_proposal_status(self, proposal_id: str) -> str | None:
+        return self._statuses.get(proposal_id)
+
+
 def _service(
     matrix: ReturnsMatrix | None = None,
     symbols: list[str] = SYMBOLS,
     prices: _Prices | None = None,
+    statuses: dict[str, str] | None = None,
 ) -> tuple[OptimizerService, _Repository, _Storage, StrategyConfig]:
     repository = _Repository(matrix if matrix is not None else _matrix(symbols))
     storage = _Storage()
@@ -129,6 +138,7 @@ def _service(
         strategy=strategy,
         clock=_Clock(),
         prices=prices if prices is not None else _prices_for(symbols),
+        proposal_status=None if statuses is None else _Statuses(statuses),
     )
     return service, repository, storage, strategy
 
@@ -172,13 +182,39 @@ def test_service_uses_provided_actual_weights() -> None:
     assert proposal.rebalance_required == (proposal.drift_l1 > 0.10)
 
 
-def test_second_run_with_new_id_keeps_the_first_proposal() -> None:
-    service, _, storage, _ = _service()
+def test_second_run_replaces_an_unexecuted_earlier_proposal() -> None:
+    """mistakes.md QA-030: a same-day rerun must not leave the dated artifact stale."""
+    service, _, storage, _ = _service(statuses={"2025-01-02-run-1": "PENDING"})
     service.run(_metadata())
     second = service.run(_metadata().model_copy(update={"run_id": "run-2"}))
     stored = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert stored["proposal_id"] == second.proposal_id == "2025-01-02-run-2"
+
+
+@pytest.mark.parametrize("earlier_status", ["EXECUTING", "EXECUTED", "PARTIAL", "FAILED"])
+def test_second_run_keeps_an_earlier_proposal_that_is_final(earlier_status: str) -> None:
+    service, _, storage, _ = _service(statuses={"2025-01-02-run-1": earlier_status})
+    service.run(_metadata())
+    service.run(_metadata().model_copy(update={"run_id": "run-2"}))
+    stored = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
     assert stored["proposal_id"] == "2025-01-02-run-1"
-    assert second.proposal_id == "2025-01-02-run-2"
+
+
+def test_second_run_keeps_the_earlier_proposal_when_its_status_is_unknown() -> None:
+    """Fail closed: without a verifiable state the dated artifact is not replaced."""
+    service, _, storage, _ = _service(statuses={})
+    service.run(_metadata())
+    service.run(_metadata().model_copy(update={"run_id": "run-2"}))
+    stored = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert stored["proposal_id"] == "2025-01-02-run-1"
+
+
+def test_second_run_without_a_state_reader_keeps_the_earlier_proposal() -> None:
+    service, _, storage, _ = _service()
+    service.run(_metadata())
+    service.run(_metadata().model_copy(update={"run_id": "run-2"}))
+    stored = storage.json_objects[("gold", "run_date=2025-01-02/proposal.json")]
+    assert stored["proposal_id"] == "2025-01-02-run-1"
 
 
 def test_second_run_refreshes_the_latest_pointer() -> None:
