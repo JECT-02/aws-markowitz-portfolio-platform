@@ -250,6 +250,11 @@ class ExecutorConfig(BaseModel):
     min_order_notional: float = Field(gt=0.0)
     max_price_drift_pct: float = Field(gt=0.0, le=1.0)
     execution_timeout_seconds: int = Field(ge=1)
+    # Age at which an EXECUTING idempotency claim may be taken over by a
+    # retry. It must exceed the Lambda maximum runtime so a takeover can
+    # never race a still-alive original invocation; Terraform sets it above
+    # the function timeout and a terraform test pins that relation.
+    claim_staleness_seconds: int = Field(default=90, ge=1)
     # Cognito groups allowed to approve a rebalance (N-16); an empty list
     # denies every caller (fail closed) until the human configures it.
     allowed_groups: list[str] = Field(default_factory=list)
@@ -284,6 +289,12 @@ class ExecutorConfig(BaseModel):
                     "execution_timeout_seconds": _parse_integer(
                         raw["execution_timeout_seconds"],
                         _EXECUTOR_ENV["execution_timeout_seconds"],
+                    ),
+                    "claim_staleness_seconds": (
+                        _parse_integer(
+                            source.get("EXECUTOR_CLAIM_STALENESS_SECONDS", "90"),
+                            "EXECUTOR_CLAIM_STALENESS_SECONDS",
+                        )
                     ),
                     "allowed_groups": allowed_groups,
                 }

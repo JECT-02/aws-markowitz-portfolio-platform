@@ -186,6 +186,9 @@ class OrderStatus(StrEnum):
     PARTIALLY_FILLED = "partially_filled"
     REJECTED = "rejected"
     UNKNOWN = "unknown"
+    # The broker has no order with that client id. Unlike UNKNOWN, it proves
+    # the order was never submitted, so a resubmission cannot duplicate it.
+    NOT_FOUND = "not_found"
 
 
 class BrokerPosition(BaseModel):

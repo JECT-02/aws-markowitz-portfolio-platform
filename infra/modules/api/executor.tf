@@ -48,6 +48,18 @@ variable "executor_execution_timeout_seconds" {
   }
 }
 
+variable "executor_claim_staleness_seconds" {
+  type        = number
+  description = "Age at which a stale EXECUTING idempotency claim may be taken over by a retry; must exceed the 60s Lambda timeout so a takeover never races a live invocation."
+  default     = 90
+  validation {
+    # The Lambda timeout is 60 (aws_lambda_function.executor); a plan-time
+    # tftest pins the env var against that resource attribute as well.
+    condition     = var.executor_claim_staleness_seconds > 60
+    error_message = "The claim staleness bound must exceed the 60s Lambda timeout."
+  }
+}
+
 variable "executor_allowed_groups" {
   type        = string
   description = "Comma-separated Cognito groups allowed to approve a rebalance (N-16)."
@@ -60,37 +72,9 @@ resource "aws_cognito_user_group" "executors" {
   description  = "Users allowed to approve and execute rebalance proposals (AGENTS.md 6.1)."
 }
 
-resource "aws_ecr_repository" "executor" {
-  name                 = "${var.project}-executor-${var.env}"
-  image_tag_mutability = "IMMUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.tags
-}
-
-resource "aws_ecr_lifecycle_policy" "executor" {
-  repository = aws_ecr_repository.executor.name
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Expire untagged executor images after 14 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 14
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
-}
+# The executor's ECR repository lives in the registry module/root
+# (infra/envs/registry, ADR 0004): the image must be published before the
+# Lambda is created, and the repository must exist before the image is pushed.
 
 resource "aws_iam_role" "executor" {
   name = "${var.project}-${var.env}-executor-lambda"
@@ -183,9 +167,13 @@ resource "aws_lambda_function" "executor" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.executor.repository_url}@${lookup(var.image_digests, "executor", "")}"
+  image_uri     = "${var.repository_urls["executor"]}@${lookup(var.image_digests, "executor", "")}"
 
   lifecycle {
+    precondition {
+      condition     = contains(keys(var.repository_urls), "executor")
+      error_message = "repository_urls is missing the \"executor\" image; apply infra/envs/registry first."
+    }
     precondition {
       condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, "executor", "")))
       error_message = "image_digests[\"executor\"] is missing or is not a sha256:<64 hex> digest: pass the Executor image digest in TF_VAR_image_digests."
@@ -223,6 +211,7 @@ resource "aws_lambda_function" "executor" {
       EXECUTOR_MIN_ORDER_NOTIONAL        = tostring(var.executor_min_order_notional)
       EXECUTOR_MAX_PRICE_DRIFT_PCT       = tostring(var.executor_max_price_drift_pct)
       EXECUTOR_EXECUTION_TIMEOUT_SECONDS = tostring(var.executor_execution_timeout_seconds)
+      EXECUTOR_CLAIM_STALENESS_SECONDS   = tostring(var.executor_claim_staleness_seconds)
       EXECUTOR_ALLOWED_GROUPS            = var.executor_allowed_groups
     }
   }
@@ -268,5 +257,5 @@ output "executor_function_name" {
 
 output "executor_ecr_repository_uri" {
   description = "Executor ECR repository URI."
-  value       = aws_ecr_repository.executor.repository_url
+  value       = var.repository_urls["executor"]
 }

@@ -123,7 +123,7 @@ class SimulatedBroker:
     def get_order_status(self, client_order_id: str) -> OrderSnapshot:
         order = self._orders.get(client_order_id)
         if order is None:
-            return OrderSnapshot(status=OrderStatus.UNKNOWN, filled_quantity=0.0)
+            return OrderSnapshot(status=OrderStatus.NOT_FOUND, filled_quantity=0.0)
         return order.snapshot()
 
     def _apply_fill(self, symbol: str, side: OrderSide, filled: float) -> None:

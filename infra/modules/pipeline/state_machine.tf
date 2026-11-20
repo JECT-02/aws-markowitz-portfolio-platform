@@ -389,7 +389,7 @@ output "function_names" {
 
 output "ecr_repository_uris" {
   description = "ECR repository URIs keyed by stage."
-  value       = { for name, repo in aws_ecr_repository.functions : name => repo.repository_url }
+  value       = var.repository_urls
 }
 
 output "stage_output_contract" {

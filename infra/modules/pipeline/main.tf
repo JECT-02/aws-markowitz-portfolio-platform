@@ -201,42 +201,14 @@ variable "dlq_arns" {
   description = "Dead-letter queue ARNs keyed by pipeline stage (ingest/clean/optimizer/schedule)."
 }
 
-# --- ECR repositories ---------------------------------------------------------
+# The ECR repositories live in the registry module/root (infra/envs/registry):
+# the images must be published before this module's Lambdas are created, and
+# the repositories must exist before the images are pushed (ADR 0004). Each
+# function addresses the digest published in its own repository.
 
-resource "aws_ecr_repository" "functions" {
-  for_each = local.lambda_configs
-
-  name                 = "${var.project}-${each.key}-${var.env}"
-  image_tag_mutability = "IMMUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.tags
-}
-
-resource "aws_ecr_lifecycle_policy" "functions" {
-  for_each = aws_ecr_repository.functions
-
-  repository = each.value.name
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Expire untagged images after 14 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 14
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
+variable "repository_urls" {
+  type        = map(string)
+  description = "ECR repository URL per function image, keyed ingest/clean/optimizer/monitor (from the registry module)."
 }
 
 # --- Lambda execution roles (one per function, least privilege) ----------------
@@ -481,9 +453,13 @@ resource "aws_lambda_function" "pipeline" {
 
   package_type  = "Image"
   architectures = ["x86_64"]
-  image_uri     = "${aws_ecr_repository.functions[each.key].repository_url}@${lookup(var.image_digests, each.key, "")}"
+  image_uri     = "${var.repository_urls[each.key]}@${lookup(var.image_digests, each.key, "")}"
 
   lifecycle {
+    precondition {
+      condition     = contains(keys(var.repository_urls), each.key)
+      error_message = "repository_urls is missing the \"${each.key}\" image; apply infra/envs/registry first."
+    }
     precondition {
       condition     = can(regex("^sha256:[0-9a-f]{64}$", lookup(var.image_digests, each.key, "")))
       error_message = "image_digests[\"${each.key}\"] is missing or is not a sha256:<64 hex> digest: pass one digest per image repository in TF_VAR_image_digests."

@@ -1,11 +1,4 @@
 mock_provider "aws" {
-  mock_resource "aws_ecr_repository" {
-    defaults = {
-      # The URL is computed at apply time; pinning it lets the image_uri
-      # assertions run at plan time (QA-002/QA-003).
-      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
-    }
-  }
   mock_data "aws_region" {
     defaults = {
       name = "us-east-1"
@@ -20,6 +13,10 @@ variables {
   image_digests = {
     reader   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
     executor = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
+  repository_urls = {
+    reader   = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-reader-dev"
+    executor = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-executor-dev"
   }
   code_version           = "abc1234"
   spa_allowed_origin     = "https://spa.example.com"
@@ -234,6 +231,17 @@ run "executor_reads_only_the_current_alpaca_parameters" {
       for st in jsondecode(aws_iam_role_policy.executor_permissions.policy).Statement : [for a in try(tolist(st.Action), [st.Action]) : a != "ssm:GetParameterHistory"]
     ]))
     error_message = "The executor must not read parameter history (superseded credentials)."
+  }
+}
+
+run "stale_claim_takeover_never_races_a_live_invocation" {
+  command = plan
+
+  # The staleness bound must exceed the Lambda timeout, so a retry only
+  # takes over a claim whose original owner has certainly ended.
+  assert {
+    condition     = tonumber(aws_lambda_function.executor.environment[0].variables.EXECUTOR_CLAIM_STALENESS_SECONDS) > aws_lambda_function.executor.timeout
+    error_message = "EXECUTOR_CLAIM_STALENESS_SECONDS must exceed the executor Lambda timeout."
   }
 }
 

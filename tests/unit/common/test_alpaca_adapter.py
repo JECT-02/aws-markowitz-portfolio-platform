@@ -225,21 +225,21 @@ def test_replaced_orders_map_to_open_and_keep_polling() -> None:
     assert snapshot.filled_quantity == pytest.approx(0.0)
 
 
-def test_a_404_lookup_reports_unknown_instead_of_failing() -> None:
-    """N-26: a not-yet-visible order keeps the bounded polling alive."""
+def test_a_404_lookup_reports_not_found_so_a_retry_may_resubmit() -> None:
+    """404 means the broker holds no such order: a retry may send it again."""
     broker = _broker()  # _FakeTradingClient raises APIError('...', 404)
     snapshot = broker.get_order_status("missing-id")
-    assert snapshot.status is OrderStatus.UNKNOWN
+    assert snapshot.status is OrderStatus.NOT_FOUND
     assert snapshot.filled_quantity == pytest.approx(0.0)
 
 
-def test_a_404_code_field_also_reports_unknown() -> None:
+def test_a_404_code_field_also_reports_not_found() -> None:
     class _DictErrorClient(_FakeTradingClient):
         def get_order_by_client_id(self, client_order_id: str) -> SimpleNamespace:
             raise APIError({"code": 404, "message": "not found"})
 
     snapshot = _broker(trading=_DictErrorClient()).get_order_status("missing")
-    assert snapshot.status is OrderStatus.UNKNOWN
+    assert snapshot.status is OrderStatus.NOT_FOUND
 
 
 def test_other_lookup_errors_still_raise_broker_error() -> None:

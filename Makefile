@@ -1,6 +1,6 @@
 ENV ?= dev
 
-.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan freeze run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer build-monitor build-backtest
+.PHONY: install format lint typecheck security test-unit test-property test-integration test-infra coverage coverage-core check tf-fmt tf-validate tf-lint tf-test tf-plan tf-plan-registry freeze run-optimizer-local run-backtest-local build-ingest build-clean build-images build-optimizer build-monitor build-backtest
 
 install:
 	uv sync
@@ -57,6 +57,7 @@ tf-fmt:
 
 tf-validate:
 	cd infra/bootstrap && terraform init -backend=false && terraform validate
+	cd infra/envs/registry && terraform init -backend=false && terraform validate
 	cd infra/envs/dev && terraform init -backend=false && terraform validate
 
 tf-lint:
@@ -69,9 +70,14 @@ tf-test:
 	cd infra/modules/backtest && terraform test
 	cd infra/modules/api && terraform test
 	cd infra/modules/web && terraform test
+	cd infra/modules/registry && terraform test
 
 tf-plan:
 	cd infra/envs/$(ENV) && terraform init -backend-config=backend.hcl && terraform plan -out=tfplan
+
+# The registry is applied before dev (ADR 0004): plan it on its own.
+tf-plan-registry:
+	cd infra/envs/registry && terraform init -backend-config=backend.hcl && terraform plan -out=tfplan
 
 run-optimizer-local:
 	uv run python -m optimizer.local

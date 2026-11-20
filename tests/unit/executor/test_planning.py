@@ -181,7 +181,9 @@ class TestSimulatedBroker:
     def test_unknown_order_status(self) -> None:
         broker = SimulatedBroker([], equity=1_000.0, prices={"AAA": 10.0})
         snapshot = broker.get_order_status("missing")
-        assert snapshot.status is OrderStatus.UNKNOWN
+        # A missing order is NOT_FOUND: the broker holds no such order, so a
+        # resubmission cannot duplicate anything.
+        assert snapshot.status is OrderStatus.NOT_FOUND
         assert snapshot.filled_quantity == 0.0
 
     def test_closed_market_rejects_submission(self) -> None:

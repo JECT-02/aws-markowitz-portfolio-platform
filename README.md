@@ -88,19 +88,29 @@ lookback con la ventana y la validación). Los tickers y el tope por activo
 ## Despliegue (pasos del humano)
 
 1. `infra/bootstrap` (una vez): bucket de estado + rol OIDC de CI.
-2. Crea `infra/envs/dev/backend.hcl` con el nombre real del bucket de estado
-   (`bucket = "<state_bucket_name>"`; el archivo está en `.gitignore`) y el
-   repositorio con la variable `TERRAFORM_BACKEND_BUCKET` para el plan de CI.
+2. Crea `infra/envs/dev/backend.hcl` y `infra/envs/registry/backend.hcl` con el
+   nombre real del bucket de estado (`bucket = "<state_bucket_name>"`; el
+   archivo está en `.gitignore`) y el repositorio con la variable
+   `TERRAFORM_BACKEND_BUCKET` para el plan de CI.
 3. Claves de Alpaca en SSM (`/portfolio-markowitz/dev/alpaca/...`).
-4. Construir y publicar las 7 imágenes en su repositorio ECR: `make freeze`
-   corre solo antes de cada build; publica con digest inmutable (nunca
-   `latest`) y anota **un digest por imagen** (`ingest`, `clean`, `optimizer`,
-   `monitor`, `backtest`, `reader`, `executor`). Un digest solo existe dentro
-   de su repositorio, así que no se puede reutilizar el del optimizador. La
-   imagen base `public.ecr.aws/lambda/python:3.12` es un tag mutable: obtén su
-   digest con `docker pull`/`docker inspect` y pínalo en los 7 Dockerfiles
-   (L-16).
-5. Exporta las dos variables obligatorias del entorno (no tienen valor por
+4. Crea los repositorios ECR **antes** de publicar imágenes: el registro vive
+   en su propio root porque los repos deben existir antes del push, y las
+   Lambdas necesitan las imágenes ya publicadas (ADR 0004):
+
+   ```bash
+   make tf-plan-registry               # revisa el plan
+   cd infra/envs/registry && terraform apply tfplan
+   ```
+
+5. Construir y publicar las 7 imágenes en su repositorio: `make freeze` corre
+   solo antes de cada build; autentícate con `aws ecr get-login-password` y
+   publica con digest inmutable (nunca `latest`), anotando **un digest por
+   imagen** (`ingest`, `clean`, `optimizer`, `monitor`, `backtest`, `reader`,
+   `executor`). Un digest solo existe dentro de su repositorio, así que no se
+   puede reutilizar el del optimizador. La imagen base
+   `public.ecr.aws/lambda/python:3.12` es un tag mutable: obtén su digest con
+   `docker pull`/`docker inspect` y pínalo en los 7 Dockerfiles (L-16).
+6. Exporta las dos variables obligatorias del entorno (no tienen valor por
    defecto, así que un `plan` sin ellas se detiene nombrando la que falta):
 
    ```bash
@@ -111,9 +121,9 @@ lookback con la ventana y la validación). Los tickers y el tope por activo
    El prefijo de Cognito es único **por región**: si está ocupado, cambia el
    sufijo (QA-027). `infra/envs/dev/terraform.tfvars.example` muestra la forma
    de ambas variables sin valores reales.
-6. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
-7. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).
-8. Crear tu usuario en Cognito y asignarlo al grupo `executors` (aprueba el
+7. `make tf-plan ENV=dev` revisado → `terraform apply` con ese plan.
+8. Segundo apply para fijar `spa_allowed_origin` (CORS/callbacks de Cognito).
+9. Crear tu usuario en Cognito y asignarlo al grupo `executors` (aprueba el
    rebalanceo en la demo vía API).
 
 ## Pruebas

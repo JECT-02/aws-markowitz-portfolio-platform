@@ -175,5 +175,11 @@ class IdempotencyClaim(BaseModel):
     idempotency_key: str
     proposal_id: str
     status: str
+    created_at: datetime | None = None
     result: ExecutionResult | None = None
     fresh: bool = False
+    # True when a retry took over an EXECUTING claim older than the
+    # staleness bound: the earlier owner is provably dead, but it left no
+    # result, so every planned order must be verified in the broker before
+    # being sent (never resubmitted blindly).
+    stale_takeover: bool = False

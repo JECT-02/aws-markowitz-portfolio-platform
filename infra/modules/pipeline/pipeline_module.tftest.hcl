@@ -1,12 +1,4 @@
-mock_provider "aws" {
-  mock_resource "aws_ecr_repository" {
-    defaults = {
-      # The URL is computed at apply time; pinning it lets the image_uri
-      # assertions run at plan time (QA-002/QA-003).
-      repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz"
-    }
-  }
-}
+mock_provider "aws" {}
 
 variables {
   project = "portfolio-markowitz-aws"
@@ -16,6 +8,12 @@ variables {
     clean     = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
     optimizer = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
     monitor   = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  }
+  repository_urls = {
+    ingest    = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-ingest-dev"
+    clean     = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-clean-dev"
+    optimizer = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-optimizer-dev"
+    monitor   = "123456789012.dkr.ecr.us-east-1.amazonaws.com/portfolio-markowitz-monitor-dev"
   }
   code_version = "abc1234"
   # Same values as config/strategy.yaml; the variable validation rejects
